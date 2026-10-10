@@ -1,0 +1,17 @@
+# 统一环境尝试（P0a）：FlowerTune 的依赖版本 + FedLLM-Attack 需要的其余包
+# Mac 上不装 bitsandbytes（无 CUDA）；服务器上另加 bitsandbytes==0.49.1
+torch==2.10.0
+transformers==4.53.0
+trl==0.8.1
+peft==0.6.2
+accelerate
+datasets
+flwr[simulation]==1.39.0   # 1.40 尚未发布到 PyPI（本地克隆为开发版）；新 API 在 1.39 已具备
+flwr-datasets>=0.6.0
+numpy
+pandas
+tqdm
+sentencepiece==0.2.1
+safetensors
+pytest
+matplotlib   # 实验分析作图

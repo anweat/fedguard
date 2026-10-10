@@ -1,0 +1,230 @@
+{
+ "key": "huang2024antidote",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 109092,
+    "outputTokens": 173599,
+    "cacheReadTokens": 10357888,
+    "cacheWriteTokens": 0,
+    "totalTokens": 10640579
+   },
+   "seconds": 830.2,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 84294,
+ "report": {
+  "key": "huang2024antidote",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "antidote_prune",
+    "class": "AntidotePrune",
+    "side": "server",
+    "stages": [
+     "server_post_aggregate"
+    ],
+    "needs": [
+     "aggregate",
+     "model_handle"
+    ],
+    "resources": [
+     "realign_data"
+    ],
+    "acts": [
+     "replace_global"
+    ]
+   }
+  ],
+  "steps_total": 5,
+  "steps_ported": 4,
+  "steps_outside": 1,
+  "ops_used": [
+   "fedguard.ops.states.flatten",
+   "fedguard.ops.states.unflatten",
+   "fedguard.ops.states.add"
+  ],
+  "new_helpers": [
+   {
+    "name": "factor_modules",
+    "lines": 12,
+    "generic": true,
+    "what": "把 LoRA 状态字典归成 {module: {A 键, B 键}}。fedguard.views.uploads.lora_modules 做的是同一件事，但插件导入白名单不含 fedguard.views.*，只能重写这 12 行"
+   },
+   {
+    "name": "activation_side",
+    "lines": 14,
+    "generic": true,
+    "what": "判断被 hook 的模块名承载的是该 LoRA 模块的输入激活，还是 lora_B 的输入（即瓶颈激活）；适配器可能在 <module>.lora_B 后加名字（PEFT 是 .default），也考虑 <module>.base_layer"
+   },
+   {
+    "name": "selects",
+    "lines": 5,
+    "generic": true,
+    "what": "构造 ModelHandle.activations 的 select 谓词，只 hook 要打分的 LoRA 模块，避免对全模型挂 hook"
+   },
+   {
+    "name": "channel_norms",
+    "lines": 9,
+    "generic": true,
+    "what": "pool=\"none\" 的逐样本 (tokens, d) 激活 -> 逐通道 L2 范数再对样本取均值，即式 (1) 的 (1/|D|) Σ_x ||A_j(x)||_2；fedguard.ops 里没有任何按列/按通道的范数归约"
+   },
+   {
+    "name": "activation_norms",
+    "lines": 20,
+    "generic": true,
+    "what": "把一次 activations 调用的返回整理成每个模块的输入/瓶颈通道范数，并列出 handle 没暴露的模块（缺一侧就不参与打分，保证每个候选坐标都同时带式 (1) 的两项）"
+   },
+   {
+    "name": "top_ratio_mask",
+    "lines": 26,
+    "generic": true,
+    "what": "式 (2)：对扁平化后的坐标取 floor(alpha*d) 个最大值做 0/1 掩码，支持全局或逐因子作用域，平局用稳定排序按 flatten 顺序裁定"
+   },
+   {
+    "name": "module_features",
+    "lines": 8,
+    "generic": false,
+    "what": "每个模块的坐标数、被掩码数、分数极值与均值，供 findings.features 记录（Antidote 没有客户端，subject 只能是模块）"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "lora factor pairing（如 fedguard.ops.states.factor_pairs）",
+    "what": "在插件可导入的范围内没有把状态字典归成 lora_A/lora_B 对的算子：fedguard.views.uploads.lora_modules 存在但白名单排除了 fedguard.views.*，12 行被重写进插件文件"
+   },
+   {
+    "name": "per-channel activation norm reduction",
+    "what": "fedguard.ops 没有从逐 token 激活求逐通道 L2 范数（再对样本平均）的算子；geometry 的行距离、density 的 KDE、states.norm 都不是这个，9 行写在插件里"
+   },
+   {
+    "name": "top-ratio coordinate mask",
+    "what": "fedguard.ops 没有\"按比例取 top-k 坐标并给出 0/1 掩码\"的算子（robust.largest_gap_threshold 是间隙阈值，geometry.krum_scores 是按行距离），26 行写在插件里"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "微调后模型的权重 w（逐坐标）",
+    "where": "服务器侧，聚合完成、下次下发/部署之前的那个回合",
+    "provided": "partly",
+    "via": "SERVER_POST_AGGREGATE 的 ctx.aggregate.result 是完整的本轮全局 LoRA 状态字典（所有 lora_A/lora_B 因子）；基座权重取不到数值（ModelHandle.layout/parameters 只给名字与形状，per_sample_gradients 只给梯度），所以可剪对象只有 LoRA 因子，不是论文的稠密权重 w"
+   },
+   {
+    "data": "每个权重坐标关联的输入激活 A_j(x, w)，x ∈ D_realign",
+    "where": "服务器侧，打分之前，对载入了 w 的模型做一次 D_realign 前向",
+    "provided": "partly",
+    "via": "ModelHandle.activations(samples, select, pool=\"none\", what=\"input\")：hook 模块本身得到乘 lora_A/base 的 d_in 维输入 x，hook 其 lora_B 子模块得到乘 lora_B 的 r 维瓶颈 h，逐 token、逐样本返回。缺口：库没有\"状态字典键 -> 模块名\"的映射（适配器会加 base_model.model. 前缀与适配器名），插件按前缀匹配，匹配不上的模块跳过并写进 evidence"
+   },
+   {
+    "data": "D_realign（全部有害 prompt–harmful answer 对，论文默认 2000 条）",
+    "where": "服务器侧，前向之前",
+    "provided": "yes",
+    "via": "ctx.resource(\"realign_data\")，防御方自备；库按设计不搬运语料，这是规则 3/6 规定的入口。测试里用 3 条合成样本"
+   },
+   {
+    "data": "一个载得动 w、可做前向的模型",
+    "where": "服务器侧，第 1 步",
+    "provided": "partly",
+    "via": "ModelHandle.lora(result) 在会话内载入本轮聚合 LoRA 并在结束时还原；句柄必须由防御方在服务器端提供（适配器的 probe= 参数），宿主默认没有模型。ProbeView 只有 score()，不够用"
+   },
+   {
+    "data": "\"微调已结束、该部署了\"这个时刻",
+    "where": "服务器侧，进入该回合之前",
+    "provided": "partly",
+    "via": "库没有训练结束/部署位置或信号；插件靠构造参数 last_round 或 RunSpec.extra[\"final_round\"] 得知，两者都没有就本轮不动作并写明原因。SERVER_POST_AGGREGATE 是最接近的落点（聚合之后、再下发之前），但它每轮都出现"
+   }
+  ],
+  "external_state": [
+   "re-alignment 数据集 D_realign：论文默认 2000 条有害问答对，从 BeaverTails 的 is_safe=False 采样，且与微调数据里混入的有害样本不是同一批（Section 3.1、5.1）",
+   "服务器端一个可运行的模型句柄（基座模型 + PEFT 适配器，如 HFModelHandle），由防御方传入适配器的 probe= 参数；库不提供",
+   "部署回合号（本轮是不是最后一轮）：调度信息在库外，经 last_round 或 RunSpec.extra[\"final_round\"] 传入",
+   "α 的任务取值：论文默认 0.2，GSM8K 用 0.05（Section 5.1）",
+   "剪枝后 checkpoint 的保存与再合并/部署（第 5 步）：由宿主负责，插件只把 replace_global 交回"
+  ],
+  "missing_runtime": [
+   {
+    "what": "ModelHandle 没有读取模型自身（基座）权重数值的接口：layout()/parameters() 只给名字和形状，per_sample_gradients 只给梯度",
+    "blocks": "式 (1) 的 |w_j| 只能对 LoRA 因子计算；论文真正的剪枝对象（微调后的稠密权重 w）取不到，因此只能做因子空间的 Wanda 剪枝"
+   },
+   {
+    "what": "库没有\"微调结束/即将部署\"的位置或一次性信号（SERVER_POST_AGGREGATE 每轮都有，也不存在训练循环之外的位置）",
+    "blocks": "one-shot 语义：必须由外部告知部署回合，否则插件不动作；也无法表达\"只在整个作业结束后跑一次\""
+   },
+   {
+    "what": "服务器侧宿主默认不提供模型，句柄只能由防御方自备",
+    "blocks": "第 1 步的前向与激活统计：没有完整 ModelHandle 就测不到 A_j，插件只在 evidence 里报告而不猜（声明了 needs=model_handle，部署方也可用 RunSpec.unavailable 在开局就拒掉它）"
+   }
+  ],
+  "deviations": [
+   "剪枝对象是 LoRA 因子，不是微调后的基座权重 w：服务器只有 LoRA 状态字典，aggregate.result 是它能看见/改动的全部，ModelHandle 不暴露基座权重数值。因子的一个元素不是稠密权重矩阵的一个元素；把 lora_B 的一个元素置零也不等于删掉一个秩 1 分量，且不改变 LoRA 的秩",
+   "A_j 的定义是自选的：lora_A 的坐标用模块输入、lora_B 的坐标用 lora_A 的输出（即 lora_B 的输入），逐样本在自己 token 上取 L2、再对样本求平均。论文只说\"与第 j 个权重坐标关联的隐藏激活\"",
+   "论文是集中式、微调完全结束后一次性执行；这里是联邦一轮的 SERVER_POST_AGGREGATE 时点，剪的是客户端上传的聚合结果——论文没有讨论聚合与客户端",
+   "论文 double LoRA 设置下 w 指基座权重还是 merge 后的权重未说明；本移植不 merge，剪的是本轮聚合的那个适配器",
+   "式 (1) 的权重项改为对因子取绝对值；α 的比例作用在\"所有被打分坐标\"上（我方能看到的坐标集合），而不是论文的整模型坐标集合"
+  ],
+  "open_choices": [
+   "ArgTopK_α 的作用域：默认 scope=\"global\"（式 (2) 只给一个 mask，α 定义为被置 1 的坐标比例，这是字面读法）；备选 scope=\"per_module\"，因为 Wanda 原方法逐层定稀疏率而论文没说用哪种",
+   "被掩码坐标数 k = floor(α·d)，论文没有取整规则",
+   "平局：按 states.flatten 顺序（键排序、张量内行优先）取靠前的坐标，用 torch.argsort(stable=True)，避免依赖排序实现",
+   "α 默认 0.2（论文默认，Section 5.1）；同节给出 GSM8K 用 0.05，任务值应由构造参数给出，不要照搬 0.2",
+   "测不到激活的模块被排除出候选集并上报，而不是退化成纯幅度剪枝：论文 |D_realign|=0 的退化讲的是\"参考集为空\"，不是\"测不到\"，静默退化会改变方法含义",
+   "D_realign 为空、α=0：不提案，只报告分数与原因",
+   "部署回合由 last_round 或 RunSpec.extra[\"final_round\"] 给出，都没有就不剪并写明原因",
+   "剪枝结果以 replace_global 交回宿主；插件不写 checkpoint、不做稀疏化、不做导出"
+  ],
+  "needs_from_authors": [
+   "A_j(x, w) 究竟取哪个模块（attention 的 q/k/v/o 还是 MLP）、取层输入还是输出、序列维如何归约、padding 是否计入（Appendix A.1 只给了造监督数据的 Alpaca 模板，没说算激活时是否用同一模板）",
+   "ArgTopK_α 是全局还是逐层/逐输出行：抽取文本未说明，而 Wanda 原方法逐层，直接改变掩码落点",
+   "候选坐标集合是否只含线性层权重，是否含 embedding/LayerNorm/bias；以及 double LoRA 下剪的是基座权重、某个适配器还是 merge 后的权重（若 merge，如何拆回）",
+   "Appendix A.1 的训练侧超参自相矛盾（\"LoRA alpha set to 4\"、\"learning rate is set to be 5\" 与正文 1e-3 / 1e-4）；Antidote 本身只用 α 与 |D_realign|，但复现整条流程需要核对",
+   "Table 11 的 α 消融所用的数据集与 backbone：抽取文本未给，无法判断其数值与正文表格的差异来源"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "机制层面已实测：harness 的 verify.py 在 legion 上给出 imports/contract/docstring 全过、11 个测试 0.94 s 通过；我另外用一个真实的小 Qwen2+PEFT 适配器配真正的 HFModelHandle 跑通端到端（模块名前缀匹配、一次前向、返回的全局状态恰好有 floor(0.05×896)=44 个坐标被置零，无模块被静默跳过）。不给 high 的原因：论文没说清 A_j 的定义与 ArgTopK 作用域，本移植按 Deviations/Open 里写死的选择实现，与作者实现未必一致；且剪枝对象是 LoRA 因子而非论文的稠密权重，这一条由库接口结构性地决定，属于 partial 而不是 full。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "AntidotePrune",
+    "name": "antidote_prune",
+    "side": "server",
+    "stages": [
+     "server_post_aggregate"
+    ],
+    "needs": [
+     "aggregate",
+     "model_handle"
+    ],
+    "resources": [
+     "realign_data"
+    ],
+    "acts": [
+     "replace_global"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 151
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 283,
+  "test_lines": 209,
+  "test_summary": "11 passed in 1.11s"
+ },
+ "status": "passed",
+ "tokens": 282691,
+ "cache_read_tokens": 10357888,
+ "seconds": 830.2
+}

@@ -1,0 +1,15 @@
+{"key": "ax2103.05633", "status": "passed", "tokens": 254811, "seconds": 665.1}
+{"key": "ax2104.13230", "status": "passed", "tokens": 212834, "seconds": 484.4}
+{"key": "ax2402.12168", "status": "failed", "tokens": 110066, "seconds": 170.1}
+{"key": "ax2409.14119", "status": "passed", "tokens": 278777, "seconds": 651.2}
+{"key": "ax2410.14425", "status": "passed", "tokens": 184935, "seconds": 314.2}
+{"key": "ax2506.22506", "status": "passed", "tokens": 201469, "seconds": 446.0}
+{"key": "ax2510.16830", "status": "failed", "tokens": 193416, "seconds": 398.4}
+{"key": "ax2603.12089", "status": "passed", "tokens": 176694, "seconds": 398.9}
+{"key": "gao2019strip", "status": "failed", "tokens": 103575, "seconds": 136.4}
+{"key": "huang2024antidote", "status": "passed", "tokens": 282691, "seconds": 830.2}
+{"key": "huang2024booster", "status": "not_expressible", "tokens": 199870, "seconds": 447.0}
+{"key": "inan2023llamaguard", "status": "passed", "tokens": 183655, "seconds": 545.0}
+{"key": "rosati2024repnoise", "status": "passed", "tokens": 177130, "seconds": 393.8}
+{"key": "tamirisa2024tar", "status": "passed", "tokens": 211532, "seconds": 387.8}
+summary.md written; fresh tokens so far: 6,577,536 of 9,000,000

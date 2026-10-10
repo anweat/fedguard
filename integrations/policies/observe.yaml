@@ -1,0 +1,9 @@
+# Observation only: statistics of the uploads on the server, nothing enforced, nothing on the clients.
+# Mountable on every host without glue; a run with it trains exactly as without it.
+policy: 1
+server:
+  controls:
+    - effect_stats
+    - factor_stats
+    - {use: robust_outlier}
+    - report_guard

@@ -1,0 +1,6 @@
+== runs/flower_llm_ext_0.8B/client_act/records/guard
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client lisa_proximal               client_pre_step             32      0       0      32     0.00  {"drift": 0.20189076612847043}
+client spectral_signatures         client_pre_train             8      0     128       8     1.19  {"scored": 16, "masked": 2}
+client update_subspace_projection  client_post_train            8      0       0       8    15.07  {}
+changes: spectral_signatures: mask_samples=8, lisa_proximal: transform_gradients=32, update_subspace_projection: transform_update=8

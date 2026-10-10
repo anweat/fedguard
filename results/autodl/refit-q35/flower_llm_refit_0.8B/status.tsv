@@ -1,0 +1,10 @@
+plain_cpu	ok	90
+plain_cpu2	ok	91
+record_cpu	ok	88
+server_all	ok	48
+server_act	ok	36
+client_all	ok	83
+client_act	ok	63
+handshake	ok	55
+ext_read_cpu	ok	97
+trainer_ext	ok	68

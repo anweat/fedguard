@@ -1,0 +1,6 @@
+== runs/q35_sweep_4B/rec_fldetector/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009211248
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server fldetector                  server_aggregate             4      0       0       0     0.00  {}
+server fldetector                  server_post_aggregate        4      0       0       0     0.00  {}
+server fldetector                  server_receive               4      0       5       0     0.00  {"clusters": 1, "flagged": []}
+changes: rounds with weights=4

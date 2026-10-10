@@ -1,0 +1,30 @@
+== runs/q35_sweep_0.8B/rec_protegofed/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009223844
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client protegofed_client           client_announce             20      0       0       0    36.54  {"scored": 24, "main_cluster": 23}
+client protegofed_client           client_pre_train            20      0     480      20     0.00  {"scored": 24, "masked": 1}
+server protegofed_server           server_exchange              4      0      20       0     0.00  {"centroids": 5, "main_cluster": 5}
+changes: protegofed_client: mask_samples=20
+round client samples poisoned masked tp fp fn
+0 client0 24 2 1 0 1 2
+1 client0 24 8 7 7 0 1
+2 client0 24 5 1 0 1 5
+3 client0 24 11 1 0 1 11
+0 client1 24 4 3 3 0 1
+1 client1 24 4 4 4 0 0
+2 client1 24 4 1 0 1 4
+3 client1 24 4 1 0 1 4
+0 client2 24 3 10 3 7 0
+1 client2 24 3 2 0 2 3
+2 client2 24 7 22 7 15 0
+3 client2 24 6 1 0 1 6
+0 client3 24 5 1 0 1 5
+1 client3 24 7 1 0 1 7
+2 client3 24 2 1 0 1 2
+3 client3 24 1 1 0 1 1
+0 client4 24 4 1 0 1 4
+1 client4 24 4 1 0 1 4
+2 client4 24 6 1 0 1 6
+3 client4 24 6 1 0 1 6
+overall: 480 samples, 96 poisoned; precision 0.387, recall 0.250
+model passes by client plugins: {"forward_samples": 480, "backward_samples": 480, "seconds": 36.5, "plugin_seconds": 59.7}
+per client-round: training 1.5 s, capture and client plugins 3.1 s

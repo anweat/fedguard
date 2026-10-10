@@ -1,0 +1,198 @@
+{
+ "key": "ax2608.06795",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 35806,
+    "outputTokens": 42007,
+    "cacheReadTokens": 197376,
+    "cacheWriteTokens": 0,
+    "totalTokens": 275189
+   },
+   "seconds": 182.4,
+   "errors": 1
+  },
+  {
+   "round": 2,
+   "usage": {
+    "inputTokens": 38860,
+    "outputTokens": 13961,
+    "cacheReadTokens": 384,
+    "cacheWriteTokens": 0,
+    "totalTokens": 53205
+   },
+   "seconds": 57.5,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 80095,
+ "report": {
+  "key": "ax2608.06795",
+  "verdict": "not_expressible",
+  "plugins": [
+   {
+    "name": "lorascan",
+    "class": "LoRAScan",
+    "side": "server",
+    "stages": [
+     "server_receive"
+    ],
+    "needs": [],
+    "resources": [],
+    "acts": []
+   }
+  ],
+  "steps_total": 7,
+  "steps_ported": 0,
+  "steps_outside": 3,
+  "ops_used": [],
+  "new_helpers": [],
+  "missing_ops": [
+   {
+    "name": "activation_spike_statistic",
+    "what": "对逐插入点、逐 token 的幅度表算 s_m(x) = max_t(a_{m,t}) * log(1 + max_t(a_{m,t}) / mean_t(a_{m,t}))：既没有站点级的 max/mean 聚合算子，也没有把两者组合成尖峰统计量的算子。这是一个小的通用计算，若方法在库内有挂载点，本可写成插件文件里的模块级 helper（记入 new_helpers）；现在没有可挂的地方，故未写。"
+   },
+   {
+    "name": "median_mad_threshold",
+    "what": "tau = median + lambda * MAD 的单边上尾阈值（lambda = 4.45）。ops.robust.robust_z 返回的是逐值的中位数/MAD z 分数而不是阈值，ops.robust.largest_gap_threshold 是另一种切分规则，语义都不等价；同样是一个无处可挂的小 helper。"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "可疑适配器的插入点集合 M（哪些模块带 LoRA 附着）与每个插入点的下投影矩阵 A_m",
+    "where": "收到第三方适配器时（服务器侧的上传，或客户端收到的模型），标定与每次检测都要用",
+    "provided": "yes",
+    "via": "UploadView.factors(cid, module) / UploadView.state(cid) 给出 ...lora_A.weight；站点清单可以从 state 的 lora_A/lora_B 键自行归并，或从 ModelHandle.layout() 的 LoRA 键读出。注意 fedguard.views.uploads.lora_modules 正好做这件事，但规则 5 的允许导入清单里没有 views，移植时要在插件文件里另写几行（本可记为一个 new_helper）。"
+   },
+   {
+    "data": "每个插入点、每个提示 token 位置的模块输入隐状态 h_{m,t}",
+    "where": "推理时那一次前向之内（生成之前）逐 token 取；标定阶段对每条干净提示也一样",
+    "provided": "no",
+    "via": "没有接口给出逐 token 的模块输入：ModelHandle.hidden(samples, layer, pool) 只给每条样本一个池化向量（last token 或 mean over tokens），ModelHandle.activations(samples, select, pool) 只给逐子模块的池化输出；两者都没有原始 token 维度，也没有 max 池化。"
+   },
+   {
+    "data": "下投影瓶颈的逐 token 激活幅度 a_{m,t}(x)（A_m h_{m,t} 的标量幅度）",
+    "where": "同上，推理时前向内；标定阶段对 40 条干净提示也要",
+    "provided": "no",
+    "via": "即使把 select 指到 lora_A 子模块，activations 也只返回逐样本池化值 (n, d)，池化选项没有 max；max_t a_{m,t} 无法从任何返回的均值/末位量恢复。"
+   },
+   {
+    "data": "提示的 token 位置集合 T(x)（提示 token 数、特殊 token 与聊天模板是否计入、超长是否截断）",
+    "where": "检测时；标定阶段同理",
+    "provided": "no",
+    "via": "插件看不到分词结果：客户端只有 DataView.text(index) 与 SampleRecord.hash/source/length，length 是文本长度而不是 token 位置；模型侧的 token 化完全在 ModelHandle 内部。"
+   },
+   {
+    "data": "40 条可信、无标签的干净提示（标定集，来自 Stanford Alpaca）",
+    "where": "部署前一次性标定",
+    "provided": "partly",
+    "via": "可以用 resources 声明、由 ctx.resource(name) 读入（形式由防御方决定，库不解释内容）；但插件生命周期里没有跑标定的时刻：setup(spec) 只拿到 RunSpec，没有 ctx、model_handle 或 resources，所以标定只能整体在库外做完，产物作为资源传入。"
+   },
+   {
+    "data": "挂载可疑适配器后的前向栈（可信基座 + adapter，且能读中间激活）",
+    "where": "标定与每次检测",
+    "provided": "partly",
+    "via": "model_handle 在两侧都可以声明，with handle.lora(state): 能挂载任意 LoRA state 并调用 losses/hidden/activations/per_sample_gradients/logprob/generate；缺的是这些 pass 里的逐 token 中间激活（见上一项）。另外服务器一侧默认没有可运行的模型，需要部署方提供模型句柄。"
+   },
+   {
+    "data": "待检测的用户提示 x（部署后、生成之前的那一条）",
+    "where": "推理服务路径上，每条提示进生成前一次",
+    "provided": "no",
+    "via": "STAGE_KINDS 的十个位置全在一轮联邦训练之内；唯一的数据类别 data 是客户端本轮的本地训练样本，没有承载服务期提示的数据类别，也没有逐提示的调用形状。ModelHandle.logprob/generate 接受字符串提示，说明句柄层能处理提示，但插件拿不到待检测提示的入口。"
+   },
+   {
+    "data": "标定产物：逐插入点 mu_m、sigma_m（长度 |M|）、被监控插入点集合 M_k、阈值 tau_k",
+    "where": "部署前算一次，之后每次检测复用（per-adapter）",
+    "provided": "partly",
+    "via": "作为 resources 传入或在 ctx.state 里保存都可以，库不解释资源内容；但库内算不出来，因为需要上面的逐 token 激活与干净提示，而且插件没有可用的标定时刻去跑那 40 次前向。"
+   }
+  ],
+  "external_state": [
+   "可疑 LoRA 适配器权重（白盒）与其可信基座模型，加上能读取插入点中间激活的推理/服务栈",
+   "40 条来自 Stanford Alpaca 的可信无标签干净提示（标定集；论文未说明抽样细节）",
+   "每个适配器一份的标定产物：mu_m、sigma_m 向量（长度 |M|）、被监控插入点索引集合 M_k、阈值 tau_k",
+   "服务期逐提示的中间激活表与判定日志（论文的检测逐提示独立、不跨轮累积，所以不需要历史状态）"
+  ],
+  "missing_runtime": [
+   {
+    "what": "没有服务/推理位置：STAGE_KINDS 的十个位置（SERVER_DISTRIBUTE ... CLIENT_POST_TRAIN）全部落在一轮联邦训练之内，插件无法在「部署后、生成之前、逐提示」被调用；论文 JSON 自己把方法标为 outside_training。",
+    "blocks": "步骤 1、2、5、7 —— 没有任何调用时刻，插件根本不会被 run"
+   },
+   {
+    "what": "没有提示级拒绝动作：ACTION_STAGES 里 mask_samples/edit_samples（CLIENT_PRE_TRAIN）只改本轮本地训练样本，select_and_weight/replace_global 改的是聚合，transform_* 改的是广播/接收/损失/梯度/更新；没有「拒绝这条生成请求」的动作。",
+    "blocks": "步骤 7 —— 判定即使算出来也无处落地；把提示拒绝映射成 Decision.excluded 会变成另一种方法（论文正是为了不丢弃整个适配器才做逐提示拒绝）"
+   },
+   {
+    "what": "ModelHandle 不暴露逐 token 激活：hidden/activations 只返回每样本一个池化向量（last/mean），没有 max 池化，也没有模块输入的 token 维度。",
+    "blocks": "步骤 1、2、5 —— s_m(x) = M_m(x) * log(1 + M_m(x) / abar_m(x)) 里的 M_m = max_t a_{m,t} 无从取得"
+   },
+   {
+    "what": "没有承载服务期提示的数据类别：data 是客户端本地训练样本，loss/gradients/train_trace 是训练步内的量，reports/attachments 是跨侧通道。",
+    "blocks": "步骤 1、2、5、7 —— 检测对象（用户提示）进不来，也没有「一条提示一次调用」的形状"
+   },
+   {
+    "what": "标定没有可用的插件内时刻：GuardPlugin.setup(spec) 只收到 RunSpec，没有 ctx、model_handle 或 resources；推迟到第一次 run() 也不行，因为那时仍缺逐 token 激活与提示。",
+    "blocks": "步骤 3、4、6 —— 用 40 条干净提示做的一次性标定只能在库外完成，产物作为 resources 传入"
+   }
+  ],
+  "deviations": [
+   "没有实现，因此没有任何实现层面的偏离：插件不声明 needs/resources/acts，run() 不做检测，只回报阻塞原因。",
+   "空壳声明 at = SERVER_RECEIVE 只是为了能被加载器挂载（GuardPlugin.stages 要求非空，空 tuple 在挂载取 stages[0] 时越界）；它是合法挂载点而不是方法的工作位置，方法本身在论文里是 outside_training。这一声明不代表 LoRAScan 在服务器收包时筛查任何东西。"
+  ],
+  "open_choices": [
+   "判定为 not_expressible 而不是降级移植：步骤 2、5 是纯算术，但没有激活来源与调用位置，写成模块级函数只会是没人调用的死代码；因此 new_helpers 与 ops_used 均为空。",
+   "以下三种「硬塞」映射经评估后否定，列出以免读者以为把它们记成偏离就能搬：(a) 把 CLIENT_PRE_TRAIN 的本地训练样本当成待筛查提示——数据来源、调用时刻、决定对象全都不同，而且会让防御去删自家的训练集；(b) 用 SERVER_AGGREGATE 的 Decision.excluded 丢掉可疑适配器/客户端——论文的拒绝是逐提示的，目的正是避免因一个触发器丢弃整个适配器；(c) 用 activations(..., pool='mean') 或 hidden 近似 a_{m,t}——这会删掉 Eq (2) 的 max 项，也就删掉了「激活集中在少数 token 位置」这一统计量赖以成立的机制。",
+   "计数口径：步骤 3、4、6（部署前一次性标定）按规则 3 记为 outside，产物以 resources 传入；步骤 1、2、5 是运行时检测计算、步骤 7 是插件提出而由宿主施加的判定，记为插件侧但被缺失能力挡住。所以 steps_ported=0、steps_outside=3，剩下 4 步既没搬成也不属于「库外」。",
+   "报告 plugins 里列出这个空壳，是为了与 plugin.py 保持一致、并让挂载检查能跑通；steps_ported 仍为 0，它不代表任何已移植的防御计算。",
+   "没有替论文补 a_{m,t} 的范数形式，也没有假设 ModelHandle 存在未列出的 pool 选项（如 max）或逐 token 输出。",
+   "站点清单本来可以直接 import fedguard.views.uploads.lora_modules，按规则 5 的导入白名单只能自己从 state 的 lora_A/lora_B 键归并（几行通用代码）；这是移植时的一个小成本，因未实现故未记为 new_helpers。",
+   "论文给定的取值（k=0.05、lambda=4.45、n=40、单次前向、逐提示独立不跨轮累积、阈值 per-adapter）若将来移植应原样保留；本报告没有改动它们。"
+  ],
+  "needs_from_authors": [
+   "a_{m,t}(x) 的范数形式（L2/L1/其他）与是否含 Eq (1) 的 alpha/r 缩放：论文只写 activation magnitude，只有作者代码能确定，而这直接决定 s_m 的尺度。",
+   "sigma_m 的估计量（样本/总体标准差、ddof）与 MAD 是否乘 1.4826；k*|M| 的取整规则与 sigma_m 并列时的打破规则。",
+   "每个模型的 |M| 绝对值，以及 WQ/WK/WV/WO/Wgate/Wup/Wdown 到具体 PEFT 模块名的映射（哪些附着点算 insertion site）。",
+   "40 条 Alpaca 提示的抽样方式（子集、随机种子、是否去重、取哪个字段）与标定前向是否挂载可疑适配器。",
+   "提示的 token 化细节：chat 模板与 system prompt 是否计入 T(x)、特殊 token 是否计入、超长提示如何截断、multi-LoRA 同时挂载时如何处理。"
+  ],
+  "confidence": "high",
+  "confidence_reason": "结论只依赖 <reference> 里逐字给出的接口，且三条独立理由中每条单独成立就足以让方法无法按原语义运行：(1) STAGE_KINDS/ACTION_STAGES 的十个位置全在训练轮内，方法被论文自身标为 outside_training；(2) ModelHandle.hidden/activations 只有逐样本 last/mean 池化，拿不到逐 token 的 A 侧瓶颈激活，Eq (2) 的 max 项无从取得；(3) data 只是客户端本地训练样本，没有承载服务期提示的数据类别，也没有提示级拒绝动作。上一版的挂载报错来自空壳声明了空 tuple 位置，与方法的可表达性无关；改为声明一个合法挂载点后，空壳可被加载，但 steps_ported 仍为 0。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "LoRAScan",
+    "name": "lorascan",
+    "side": "server",
+    "stages": [
+     "server_receive"
+    ],
+    "needs": [],
+    "resources": [],
+    "acts": [],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 81
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 94,
+  "test_lines": 16,
+  "test_summary": "1 skipped in 0.01s"
+ },
+ "status": "passed",
+ "tokens": 130634,
+ "cache_read_tokens": 197760,
+ "seconds": 239.9
+}

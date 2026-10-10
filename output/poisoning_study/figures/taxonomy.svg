@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="620" viewBox="0 0 1180 620">
+  <rect width="1180" height="620" fill="#f7f8fb"/>
+  <style>
+    text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill:#172033; }
+    .title { font-size:28px; font-weight:700; }
+    .h { font-size:19px; font-weight:700; }
+    .b { font-size:15px; }
+    .small { font-size:13px; fill:#506070; }
+    .box { fill:#ffffff; stroke:#cfd7e6; stroke-width:1.5; rx:8; }
+    .core { fill:#14213d; }
+    .coreText { fill:#ffffff; font-weight:700; font-size:22px; }
+    .line { stroke:#7b8aa3; stroke-width:2; fill:none; marker-end:url(#arrow); }
+    .tag { fill:#e9eff8; stroke:#b8c6dc; stroke-width:1; rx:6; }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#7b8aa3"/>
+    </marker>
+  </defs>
+  <text class="title" x="40" y="48">论文中涉及的投毒与相关攻击技术谱系</text>
+  <rect class="core" x="455" y="82" width="270" height="70" rx="10"/>
+  <text class="coreText" x="510" y="125">训练/微调阶段投毒</text>
+
+  <path class="line" d="M455 118 H295 V188"/>
+  <path class="line" d="M520 152 V188"/>
+  <path class="line" d="M660 152 V188"/>
+  <path class="line" d="M725 118 H895 V188"/>
+
+  <rect class="box" x="60" y="188" width="285" height="150"/>
+  <text class="h" x="85" y="222">传统 FL 数据投毒</text>
+  <text class="b" x="85" y="254">标签翻转、噪声叠加、干净标签</text>
+  <text class="small" x="85" y="282">特点：实现简单，攻击效果直观</text>
+  <text class="small" x="85" y="308">弱点：局部模型分布易偏移</text>
+
+  <rect class="box" x="380" y="188" width="285" height="150"/>
+  <text class="h" x="405" y="222">生成式隐蔽投毒</text>
+  <text class="b" x="405" y="254">VagueGAN、LSDAM、MoEGAN</text>
+  <text class="small" x="405" y="282">目标：兼顾攻击性与隐蔽性</text>
+  <text class="small" x="405" y="308">技术：生成器、扩散、专家路由</text>
+
+  <rect class="box" x="700" y="188" width="285" height="150"/>
+  <text class="h" x="725" y="222">合谋与身份层攻击</text>
+  <text class="b" x="725" y="254">女巫节点、SMA、多节点协同</text>
+  <text class="small" x="725" y="282">目标：放大聚合权重</text>
+  <text class="small" x="725" y="308">难点：避免相似度集群暴露</text>
+
+  <rect class="box" x="835" y="385" width="285" height="150"/>
+  <text class="h" x="860" y="419">LLM 微调相关风险</text>
+  <text class="b" x="860" y="451">有害微调、后门、隐私泄露</text>
+  <text class="small" x="860" y="479">目标：安全对齐退化或触发行为</text>
+  <text class="small" x="860" y="505">防御：DP、审计、遗忘、再对齐</text>
+
+  <path class="line" d="M522 338 V385 H255"/>
+  <path class="line" d="M522 338 V385 H522"/>
+  <path class="line" d="M842 338 V385 H977"/>
+
+  <rect class="box" x="60" y="385" width="285" height="150"/>
+  <text class="h" x="85" y="419">检测与防御视角</text>
+  <text class="b" x="85" y="451">PCA/UMAP、MCD、KL、CAEKL</text>
+  <text class="small" x="85" y="479">横向：同轮客户端模型对比</text>
+  <text class="small" x="85" y="505">纵向：同一客户端历史一致性</text>
+
+  <rect class="box" x="380" y="385" width="285" height="150"/>
+  <text class="h" x="405" y="419">安全复现实验边界</text>
+  <text class="b" x="405" y="451">玩具数据集、隔离环境、防御优先</text>
+  <text class="small" x="405" y="479">输出：曲线、可视化、检测指标</text>
+  <text class="small" x="405" y="505">不面向真实系统规避部署</text>
+</svg>

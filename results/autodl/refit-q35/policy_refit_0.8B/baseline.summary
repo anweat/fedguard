@@ -1,0 +1,12 @@
+== runs/policy_refit_0.8B/rec_baseline/_0__0_300_fedavg_c5s5_i4_b4a1_l256_r16a32_20261011034047
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server effect_stats                server_receive               2      0       0       0     0.00  {"clients": ["client0", "client1", "client2", "client3", "client4"], "gram": [[0.04743688417207422, 0.00764683
+server factor_stats                server_receive               2      0       0       0     0.00  {}
+server flame                       server_aggregate             2      0       0       0     0.00  {}
+server flame                       server_post_aggregate        2      0       0       2     0.00  {"sigma": 0.0002122726105384512}
+server flame                       server_receive               2      0       0       4     0.00  {"bound": 0.2122726105384512}
+server krum                        server_aggregate             2      0      10       0     0.00  {}
+server norm_clip                   server_receive               2      0      10       0     0.00  {"bound": 0.636817831615331}
+server report_guard                server_aggregate             2      0      10       0     0.00  {"caps": {"client0": {"peer": 548.0, "pinned": 274}, "client1": {"peer": 548.0, "pinned": 277}, "client2": {"p
+server robust_outlier              server_receive               2      0      10       0     0.00  {"reference": "cross_section"}
+changes: rounds with clients reweighted=2, flame: transform_update=4, flame: replace_global=2

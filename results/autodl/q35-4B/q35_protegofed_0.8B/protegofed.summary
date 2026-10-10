@@ -1,0 +1,6 @@
+== runs/q35_protegofed_0.8B/rec_protegofed/_0__0_300_fedavg_c4s4_i6_b4a1_l256_r16a32_20261009202227
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client protegofed_client           client_announce              8      0       0       0    14.18  {"scored": 24, "main_cluster": 23}
+client protegofed_client           client_pre_train             8      0     192       8     0.00  {"scored": 24, "masked": 1}
+server protegofed_server           server_exchange              2      0       8       0     0.00  {"centroids": 4, "main_cluster": 2}
+changes: rounds with weights=2, protegofed_client: mask_samples=8

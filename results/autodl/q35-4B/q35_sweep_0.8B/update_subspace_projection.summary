@@ -1,0 +1,4 @@
+== runs/q35_sweep_0.8B/rec_update_subspace_projection/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009204634
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client update_subspace_projection  client_post_train           20      0       0      20    86.91  {}
+changes: rounds with weights=4, update_subspace_projection: transform_update=20

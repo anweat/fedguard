@@ -1,0 +1,233 @@
+{
+ "key": "shen2024seal",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 87790,
+    "outputTokens": 77023,
+    "cacheReadTokens": 3468544,
+    "cacheWriteTokens": 0,
+    "totalTokens": 3633357
+   },
+   "seconds": 341.7,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 87558,
+ "report": {
+  "key": "shen2024seal",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "seal_top_percent",
+    "class": "SealTopPercent",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data"
+    ],
+    "resources": [
+     "selector_scores"
+    ],
+    "acts": [
+     "mask_samples"
+    ]
+   }
+  ],
+  "steps_total": 13,
+  "steps_ported": 2,
+  "steps_outside": 11,
+  "ops_used": [],
+  "new_helpers": [
+   {
+    "name": "top_percent_keep",
+    "lines": 13,
+    "generic": true,
+    "what": "按分数取 ceil(p*n) 个最大者的下标（升序返回），并列按输入顺序，n>0 时至少保留一个：SEAL 的 top p% 截断；论文没给取整与并列规则，这里是本移植固定的规则"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "softmax_selector_rank_update",
+    "what": "没有算子计算 ∇σ_j(ω) 或执行 ω ← ω − α·gap·∇σ_j(ω)（公式 (5)/(8)）；数学上只要几行，但没有任何位置能承载它所属的 S2 迭代，见 missing_runtime"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "本轮该客户端将用于本地训练的样本，以及每条样本的身份（顺序、hash、来源、长度）",
+    "where": "客户端，CLIENT_PRE_TRAIN，本地训练开始之前",
+    "provided": "yes",
+    "via": "ctx.data（DataView）；DataView.manifest 给 index/hash/source/length，hash 是样本文本的 SHA-256；插件用它排名并 mask"
+   },
+   {
+    "data": "每条样本的选择器分数 σ_i(ω_K)，S3 的排序键",
+    "where": "库外 S2 产出；在 CLIENT_PRE_TRAIN 被查询",
+    "provided": "partly",
+    "via": "训练过程里没有产出它的位置（没有 D_safe、没有 ω、没有打分用的前向）；按规则 3 由防守方以 resources['selector_scores']（hash → σ）接入，插件只查表"
+   },
+   {
+    "data": "样本身份与离线数据集 D 的对应关系（论文按 z_i 在 D 中的位置排名）",
+    "where": "S2 训练与 S3 打分之间，以及离线 D 与客户端本地分片之间",
+    "provided": "partly",
+    "via": "DataView.manifest 的文本 hash 可作稳定键（Section 4.4 说明选择器绑定数据集而非模型），但库不提供数据集版本号或离线索引，'D 中的位置'只能换成'文本 hash'"
+   },
+   {
+    "data": "训练步内每条样本的长度归一化 NLL ℓ(θ_k; z_j)，并知道它属于哪条样本（公式 (8) 的 ω 更新）",
+    "where": "客户端，CLIENT_LOSS（前向之后、反向之前）",
+    "provided": "partly",
+    "via": "LossView.per_sample_losses() 给批内逐样本损失（对已标注 token 平均，不是论文的响应长度归一化口径）；LossView.sample_ids() 给每行的样本 hash（需要部署用 extend_trainer(identify=identify_from_dataset(train_dataset, guard.training_hashes())) 接上，否则抛 LookupError）。两者都只在 CLIENT_LOSS 存在"
+   },
+   {
+    "data": "与 z_j 配对的 D_safe 样本 z_i^safe 以及同一迭代的 ℓ(θ; z_i^safe)",
+    "where": "S2 每个迭代（若要在轮内表达，就是客户端的训练步）",
+    "provided": "no",
+    "via": "客户端只有一份 data kind，没有配对调度；LossView.loss_on(batch) 只前向宿主格式（已 tokenized）的 batch，插件拿不到 tokenizer，造不出 D_safe 的 batch"
+   },
+   {
+    "data": "θ 的惩罚混合更新 (1−γ_k)∇ℓ(θ_k;z_i^safe) + γ_k σ_j(ω_k)∇ℓ(θ_k;z_j) 与步长 β_k（公式 (4)）",
+    "where": "S2 每个迭代，客户端训练步内",
+    "provided": "partly",
+    "via": "transform_loss（LossView.gradients_of 可对插件自造的标量求梯度）与 transform_gradients 可以替换这一步的损失与梯度；但插件不能挑数据、不能设优化器/步长/γ 调度，也补不上上面缺的安全损失项"
+   },
+   {
+    "data": "与被训模型同尺寸的第二份参数 θ̂ 及其梯度（公式 (6)，Algorithm 1）",
+    "where": "S2（Algorithm 1）",
+    "provided": "no",
+    "via": "ModelHandle 只包着被训练的那个模型（handle.lora 换 LoRA，parameters/layout 看参数），没有第二份参数，也没有步进参数的方法；服务器侧句柄是可选的防守方 probe，同样给不出 θ̂"
+   },
+   {
+    "data": "ω 的逐坐标更新所属的 S2 循环：K 个迭代、每 iteration 的配对采样、γ 的每 epoch 调度、ω 的优化器",
+    "where": "S2（论文把它写成一次性离线工作）",
+    "provided": "no",
+    "via": "十个 stage 全在一轮训练之内，setup(spec) 只收到 RunSpec；插件不拥有循环：不能决定下一步用哪条数据、不能步进参数、不能决定迭代数；mask_samples 只在 CLIENT_PRE_TRAIN 生效一次，本轮后续 step 无法随 ω 改变选择"
+   },
+   {
+    "data": "在完整 D 上一次性打分并取全局 top p%（S3 的字面语义）",
+    "where": "训练之外，集中式（论文自己标为 outside_training）",
+    "provided": "no",
+    "via": "KIND_SIDE 把 data 归给 client，样本文本不出客户端；服务端只有 uploads/reports/messages，没有跨客户端的数据视图。只能退化为每客户端每轮各自截断"
+   },
+   {
+    "data": "选择是否真的生效、哪些样本被丢弃",
+    "where": "客户端，CLIENT_PRE_TRAIN 之后、本地训练之前",
+    "provided": "yes",
+    "via": "mask_samples 动作 + ClientGuard.kept_indices()/training_samples()/training_hashes()；记录里只有 hash，没有原文"
+   }
+  ],
+  "external_state": [
+   "训练好的选择器 ω_K ∈ R^N，或等价的 {样本 hash → σ_i(ω_K)} 分数表（本插件的 resources['selector_scores']），按数据集版本缓存（Section 4.4：选择器可迁移到别的模型）",
+   "安全参考数据集 D_safe：SLIMORCA 留存子集 112k（Section 4.2）或 ALPACA-CLEANED 子集 49.9k（Section 4.5）",
+   "待微调数据集 D：REDORCA 112k = 90k SLIMORCA + 22k ANTHROPIC RED-TEAMING，或 OPENORCA 49.9k（Section 4.1/4.5）；在联邦里是各客户端的本地分片",
+   "安全对齐的起点模型 θ₁：现成的 instruct/chat 模型，或 PYTHIA-2.8B 的 SFT 2 epoch + DPO 1 epoch 产物（Appendix B.1）",
+   "Algorithm 1 的辅助模型 θ̂（与 θ 同尺寸，显存翻倍；Algorithm 2 不需要）",
+   "S2 的训练循环本身：θ 与 ω 的优化器、α/β/γ 的调度、配对采样与 batch 组成、总步数 K（论文未给）",
+   "（可选，Section 4.4）用于训练选择器的小代理模型 PHI-3-MINI-128K-INSTRUCT 或 PYTHIA-2.8B"
+  ],
+  "missing_runtime": [
+   {
+    "what": "没有轮外/离线位置：STAGE_KINDS 的十个位置（SERVER_DISTRIBUTE … CLIENT_POST_TRAIN）全部在联邦轮内，论文自己把 S1–S3 标为 outside_training",
+    "blocks": "选择器训练（S2）整段没有挂载点；方法的这一步只能留在库外，产物作为资源"
+   },
+   {
+    "what": "插件不拥有训练循环：不能决定下一步用哪条数据、不能自己步进模型参数、不能在 iteration 上把 D_safe 与 D 配对，也不能决定步数 K 与 γ 的调度",
+    "blocks": "步骤 5（配对采样）与步骤 7（公式 (4) 的 θ 更新）"
+   },
+   {
+    "what": "没有被训练模型之外的第二份参数（辅助模型 θ̂）；ModelHandle 只在被训练模型上加载 LoRA、计数前向/反向",
+    "blocks": "步骤 8（公式 (6)）以及依赖它的步骤 9（公式 (5) 的损失 gap）"
+   },
+   {
+    "what": "每个客户端只有一份 data kind，训练步里没有注入第二批样本的机制；LossView.loss_on 只前向宿主格式的 batch，插件没有 tokenizer、造不出 D_safe 的 batch",
+    "blocks": "上层安全损失 (1/M)Σℓ(θ;z_i^safe) 与公式 (4) 的第一项；也说不了步骤 6 需要的确切口径（响应长度归一化 NLL，而不是宿主训练损失）"
+   },
+   {
+    "what": "没有承载 S2 迭代的位置：CLIENT_LOSS/CLIENT_STEP 每个宿主 step 调用一次，但插件不能改变宿主后续 step 用哪条数据，mask_samples 也只在 CLIENT_PRE_TRAIN 生效一次",
+    "blocks": "步骤 9/10（公式 (5)/(8)）：逐样本损失与样本身份现在拿得到（LossView.per_sample_losses + sample_ids），但 ω 的更新无法与论文的 S2 迭代、配对样本和 θ 的联合更新绑在一起"
+   },
+   {
+    "what": "没有跨客户端的样本视图（服务端只有 uploads、reports、messages）",
+    "blocks": "S3 的字面语义：在完整 D 上取全局 top p%；只能退化为每客户端每轮截断（见 Deviations）"
+   }
+  ],
+  "deviations": [
+   "论文在完整 D 上一次性按 σ_i(ω_K) 排名取 top p%，D_top 在微调前固定（Section 3.3）；本插件在每个客户端、每一轮对本轮声明的有分样本取 top p%，因此不是全局排名，客户端两轮声明不同样本集合时会得到不同子集。这是接口逼出来的：没有任何位置能看到多于一个客户端的数据。",
+   "打分这一步（σ_i(ω_K) 的 softmax 前向，步骤 11 的前半）在库外完成；插件做的是查表、排序与截断，分数表作为资源接入。",
+   "样本身份是样本文本的 SHA-256（库的 manifest hash），不是论文排名所依据的 D 中位置；文本相同的样本共享 hash，因此共享分数与 mask 决定。",
+   "论文 S4 在 D_top 上做普通微调、不再加权；插件只删样本，不实现公式 (4) 的 σ 加权（那是库外 S2 的软动作）。",
+   "没有分数的样本按'不在选择器训练过的数据集里'处理：不参与候选、被 mask 并计数；一条分数都没有时插件不动作。论文的选择器覆盖整个 D，没有这种情况。",
+   "每轮重新截断，不跨轮记忆：论文把 D_top 定义为一次性子集，没有定义本轮声明的样本集合变化时如何更新。",
+   "选择器（论文的核心 S1–S2）没有实现：它是集中式、离线、双模型的 bilevel 训练，按规则 3 不属于插件，产物以资源传入。",
+   "本移植不做任何客户端—服务器通信（论文也没有）；分数表由防守方随数据集版本发到客户端资源。"
+  ],
+  "open_choices": [
+   "p 默认 0.8，取自 Section 4.2（Section 3.3 没有默认值；Section 4.5 用 0.9、Table 3 用 0.2，可由构造参数传入）。",
+   "p·n_scored 向上取整（ceil），且在有分样本存在时至少保留 1 条（论文只说 top p%）。",
+   "分数并列按本轮声明顺序取靠前者（论文未说明并列处理）。",
+   "hash 不在 selector_scores 里的样本不参与候选并直接丢弃，计入 evidence.unscored（论文的选择器覆盖整个 D）。",
+   "所有声明样本都没有分数时，插件不做任何动作并在 evidence 说明，而不是猜一个排名。",
+   "文本完全相同的样本共享 hash，因此共享分数与 mask 决定，会被一起保留或一起丢弃。",
+   "不使用分数阈值：softmax 恒正（Section 3.1），论文的规则始终是排名 + 比例。",
+   "选择器分数以 features（越大越安全）报告，不放进 Findings.scores（那里的约定是越大越可疑）。",
+   "选择器的训练超参（α 4–5×10⁻³、β 1×10⁻⁵、γ 每 epoch 递增、batch 64、2–3 epoch、K 未给）与插件无关，本文件没有据此设任何数值。",
+   "插件不跨轮缓存决定（与 Deviations 第 6 条对应），因此声明重复时结果稳定，声明变化时每轮重算。"
+  ],
+  "needs_from_authors": [
+   "同一条数据在打乱/重打包后与 ω 坐标的对应关系（论文按 D 中的位置排名，没有定义持久样本 ID），以及能否用文本 hash 代替。",
+   "∇σ_j(ω_k) 的语义：softmax 下 ∂σ_j/∂ω 是稠密 N 维，是更新全部坐标还是只更新第 j 个（论文只说 coordinate-wise weighted descent）。",
+   "每 epoch 的迭代数与总步数 K、batch 64 里 D_safe 与 D 的配比、ω 的梯度是否在 batch 内平均或累积。",
+   "ℓ 的精确口径：哪些 token 计损失、prompt 模板、最大序列长度、是否 packing、长度归一化分母是否含特殊 token。",
+   "ω 的初始化方式与是否需要归一化/正则（softmax 对 ω 的常数平移不变，ω 不可辨识）。",
+   "Algorithm 1 第 5 行的权重写成 σ_i(ω_k) 而损失用 z_j，作者原意是哪个下标。",
+   "γ 从 0 开始与 Algorithm 1 的 γ_k ∈ (0,1) 字面冲突；γ 的上限以及每 epoch 是覆盖赋值还是累加。",
+   "损失 gap 未裁剪/归一化而 α_k 固定，作者代码里是否有数值稳定处理。",
+   "排序并列与 p%·N 非整数时的取整规则（Section 3.3 只写 top p%）。"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "排序+截断+mask 这一步在论文与接口两边都没有歧义：插件已用真实的 GuardRunner / ClientGuard / DataView / check_contract 跑通（本地无 torch，用 stub 的 tensor 库驱动；仓库 pytest 环境里 test_port.py 的四个场景同样通过）。使它不是 high 的原因有三点：(1) 13 步里只有 2 步落进插件，方法核心 S1–S2 是集中式离线训练，verdict=partial 取决于对规则 3（离线训练不属于插件、产物作为资源）的解释；(2) '在完整 D 上取全局 top p%' 只能退化为每客户端每轮截断，是接口逼出的语义变化；(3) 论文对 ω 的更新口径、K、batch 组成与损失口径都没说清，没有原作者代码/数据无法验证选择器本身。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "SealTopPercent",
+    "name": "seal_top_percent",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data"
+    ],
+    "resources": [
+     "selector_scores"
+    ],
+    "acts": [
+     "mask_samples"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 75
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 107,
+  "test_lines": 76,
+  "test_summary": "6 passed in 1.01s"
+ },
+ "status": "passed",
+ "tokens": 164813,
+ "cache_read_tokens": 3468544,
+ "seconds": 341.7
+}

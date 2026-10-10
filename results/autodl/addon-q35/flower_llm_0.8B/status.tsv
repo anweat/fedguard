@@ -1,0 +1,8 @@
+plain_cpu	ok	120
+plain_cpu2	ok	117
+record_cpu	ok	119
+server_all	ok	58
+server_act	ok	43
+client_all	ok	101
+client_act	ok	81
+handshake	ok	65

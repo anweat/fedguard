@@ -1,0 +1,4 @@
+== runs/q35_sweep_4B/rec_freqfed/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009211057
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server freqfed                     server_aggregate             4      0       0       0     0.00  {"low_frequency_components": 747253}
+changes: rounds with weights=4

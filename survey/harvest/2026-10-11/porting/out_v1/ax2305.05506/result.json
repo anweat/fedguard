@@ -1,0 +1,169 @@
+{
+ "key": "ax2305.05506",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 84632,
+    "outputTokens": 126427,
+    "cacheReadTokens": 3161088,
+    "cacheWriteTokens": 0,
+    "totalTokens": 3372147
+   },
+   "seconds": 567.2,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 88986,
+ "report": {
+  "key": "ax2305.05506",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "fedgt",
+    "class": "FedGT",
+    "side": "server",
+    "stages": [
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads",
+     "model_handle"
+    ],
+    "resources": [
+     "assignment",
+     "null_distribution",
+     "delta_table",
+     "validation"
+    ],
+    "acts": [
+     "select_and_weight"
+    ]
+   }
+  ],
+  "steps_total": 23,
+  "steps_ported": 16,
+  "steps_outside": 6,
+  "ops_used": [
+   "fedguard.ops.cluster.kmeans",
+   "fedguard.ops.cluster.silhouette",
+   "fedguard.ops.geometry.pairwise_sq_distances",
+   "fedguard.ops.states.add",
+   "fedguard.ops.states.delta",
+   "fedguard.ops.transform.pca"
+  ],
+  "new_helpers": [
+   {
+    "name": "dunn_index",
+    "lines": 18,
+    "generic": true,
+    "what": "Dunn index (smallest squared distance between cluster centers over the largest squared cluster diameter) from squared Euclidean distances; fedguard.ops.cluster has silhouette and the gap statistic but no Dunn index. Step R9."
+   },
+   {
+    "name": "trellis_llr",
+    "lines": 34,
+    "generic": false,
+    "what": "forward-backward over the trellis of the assignment matrix (states are partial syndromes, so 2^m of them) with the factorized BSC likelihood and the branch metrics 1 - delta / delta, returning the per-client a posteriori LLR of Eq. (17). Steps R15-R17."
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "trellis_forward_backward",
+    "what": "nothing in fedguard.ops works on a sequence or a trellis; the decoder is specific to this paper, so it is written in the plugin file (34 lines)."
+   },
+   {
+    "name": "dunn_index",
+    "what": "fedguard.ops.cluster stops at silhouette and the gap statistic; Eq. (5) needs a cluster-validity index that prefers separated clusters, written in the plugin file (18 lines, generic)."
+   }
+  ],
+  "missing_runtime": [
+   {
+    "what": "no data kind for the m secure group aggregates. A server plugin that declares `uploads` sees every per-client LoRA in the clear, and a deployment that hides them (RunSpec.unavailable={'uploads'}) refuses the plugin before the first round.",
+    "blocks": "R3, and with it the setting the paper is about. The port has to build the group aggregates itself from cleartext uploads, so it can only run where secure aggregation is off, which is the opposite of the paper's deployment."
+   },
+   {
+    "what": "the server side has no runnable model by default (OpenFedLLMGuard mounts a model handle only when a probe is passed) and the ModelHandle protocol has no prediction or label call.",
+    "blocks": "R4 as the paper defines it: source-label recall, top-1 accuracy and balanced accuracy cannot be computed at all. The port substitutes the negative mean training loss on the defender validation set."
+   },
+   {
+    "what": "ModelHandle.lora(state) takes a LoRA state dict of the broadcast rank, while a group aggregate is a sum of k rank-r LoRA products of rank <= k*r and has no such state dict.",
+    "blocks": "R4 and R5 in their exact form: the model pass and the principal component are taken on the factor-wise sum of the members, whose product is not the sum of their products."
+   },
+   {
+    "what": "harness.server_guard cannot mount a server-side model handle: OpenFedLLMGuard takes probe=..., but server_guard does not expose it.",
+    "blocks": "nothing in the method, only the test: it builds the guard from harness.OpenFedLLMGuard + harness.GuardRunner instead of server_guard."
+   }
+  ],
+  "deviations": [
+   "Secure aggregation: the paper's server only ever sees the m group aggregates; the port computes them from the per-client uploads, so the privacy property the method is built on is gone (R3).",
+   "The group aggregate is passed to the model handle and to the PCA as the factor-wise sum of the members' A and B entries; the sum of the products is not the product of the sums (R4, R5).",
+   "The utility is the negative mean training loss on the validation set, not the paper's accuracy/recall metrics, which the ModelHandle protocol cannot produce (R4).",
+   "The principal component is taken over all LoRA factors of the factor-space group update instead of over the fully connected layer of the full model (R5).",
+   "The exclusion is the select_and_weight decision of this round and the host aggregates the kept clients normally; the paper's group-testing round performs m group aggregations and no ordinary one, and its M-hat is fixed for the later rounds (R18).",
+   "The assignment matrix is not shipped: any (m, n) 0/1 tensor with distinct nonzero columns is accepted, instead of the BCH / cyclic parity-check matrices the paper uses (R1, R15)."
+  ],
+  "open_choices": [
+   "The two features are on different scales and the paper does not say whether they are normalized; each column is centered and scaled to unit standard deviation before clustering (feature_scale=True).",
+   "k-means seeding and restarts are the library defaults, with the seed drawn from ctx.rng so that a run replays.",
+   "k-hat is the smallest k with the largest Dunn index; the highest-utility cluster is the one with the largest mean utility, ties broken toward the lowest cluster label.",
+   "The silhouette needs at least two clusters, so it is not defined for k = 1: s(1) is taken as 0, which makes s_max < s_thres mean one cluster, and a k-means run that collapses to fewer than k labels is not scored at all.",
+   "The Dunn index is 0.0 when no cluster holds two points (the ratio would be 0/0).",
+   "Every client of the assignment matrix must take part in the round, otherwise the plugin reports a skip, because the offline tables are tied to that n; an empty group in the matrix is likewise rejected.",
+   "test_round defaults to None, so the test runs in every round the plugin is mounted in; the paper runs it once (round 1 or 5) and reuses M-hat. Setting test_round selects the one-shot behaviour."
+  ],
+  "needs_from_authors": [
+   "The offline tables themselves: the parity-check matrix A (BCH code of length 15 with 8 redundant bits, and the (30,18) cyclic code), n_m^max, Pr(Z|N_m) and the Delta-hat(n_m) search results, with the Monte-Carlo sample counts, none of which the paper gives.",
+   "The k-means initialization, distance and restarts, whether the two features are normalized or weighted, whether the PCA centers the data, and the tie-breaks of Eq. (5) and of the negative-test rule.",
+   "How one secure-aggregation protocol instance produces the m overlapping group aggregates (the masks / secret sharing), which the paper leaves open.",
+   "Whether the group-testing round also updates the global model, and how the flagged clients leave and re-enter training."
+  ],
+  "confidence": "medium",
+  "confidence_reason": "The decoder, the clustering test, the MLE and the exclusion are implemented and covered by synthetic mechanism tests (the poisoned round flags exactly the amplified client, the no-signal round flags nobody, both decoders and the one-shot protocol work). The port is not equivalent to the paper: the group aggregates come from cleartext uploads instead of secure aggregation, the utility metric is a loss instead of accuracy/recall, the group aggregate is passed in factor space, and the assignment matrix and offline tables are defender assets that the paper does not publish. One observed fragility, not covered by a test: with m = 4 and honest clients whose updates are independent noise, the PCA of the group vectors gives the four points a strong one-dimensional structure and the paper's own rule splits them into two clusters (s_max = 0.88), which flags four honest clients. The no-signal test therefore uses clients that agree with each other. Whether a real deployment sits closer to the fragile case depends on client heterogeneity and on m, which the paper sets to 8 or 12."
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "FedGT",
+    "name": "fedgt",
+    "side": "server",
+    "stages": [
+     "server_aggregate"
+    ],
+    "needs": [
+     "model_handle",
+     "uploads"
+    ],
+    "resources": [
+     "assignment",
+     "delta_table",
+     "null_distribution",
+     "validation"
+    ],
+    "acts": [
+     "select_and_weight"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 160
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 235,
+  "test_lines": 156,
+  "test_summary": "5 passed in 0.96s"
+ },
+ "status": "passed",
+ "tokens": 211059,
+ "seconds": 567.2,
+ "cache_read_tokens": 3161088
+}

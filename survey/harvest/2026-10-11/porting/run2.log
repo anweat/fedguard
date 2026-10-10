@@ -1,0 +1,6 @@
+{"key": "ax2411.17453", "status": "passed", "tokens": 167568, "seconds": 385.7}
+{"key": "ax2608.06795", "status": "passed", "tokens": 130634, "seconds": 239.9}
+{"key": "shen2024seal", "status": "passed", "tokens": 141454, "seconds": 333.3}
+{"key": "huang2024vaccine", "status": "failed", "tokens": 161705, "seconds": 243.3}
+{"key": "xie2024gradsafe", "status": "not_expressible", "tokens": 184104, "seconds": 350.4}
+summary.md written; fresh tokens so far: 1,848,099 of 3,000,000

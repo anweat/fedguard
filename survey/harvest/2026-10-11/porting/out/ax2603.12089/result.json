@@ -1,0 +1,239 @@
+{
+ "key": "ax2603.12089",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 82107,
+    "outputTokens": 94587,
+    "cacheReadTokens": 2268416,
+    "cacheWriteTokens": 0,
+    "totalTokens": 2445110
+   },
+   "seconds": 398.9,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 84646,
+ "report": {
+  "key": "ax2603.12089",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "embtracker_tracing",
+    "class": "EmbTrackerTracing",
+    "side": "server",
+    "stages": [
+     "server_post_aggregate"
+    ],
+    "needs": [
+     "model_handle"
+    ],
+    "resources": [
+     "verification_prompts",
+     "watermark_triggers"
+    ],
+    "acts": []
+   }
+  ],
+  "steps_total": 10,
+  "steps_ported": 2,
+  "steps_outside": 4,
+  "ops_used": [
+   "fedguard.ops.text.split_words"
+  ],
+  "new_helpers": [
+   {
+    "name": "insert_trigger",
+    "lines": 11,
+    "generic": true,
+    "what": "按论文的 T = I(x, Tr, p, n) 把触发词插到文本的随机词位；fedguard.ops.text 只有 split_words/leave_one_out 一类算子，没有插入算子，词边界沿用 split_words。"
+   },
+   {
+    "name": "exclusive_attribution",
+    "lines": 11,
+    "generic": true,
+    "what": "式 (3) 的排他阈值规则：只有一个候选的 VR 达到 gamma、其余全部低于它时返回该候选，否则返回 None（论文的 False）。"
+   },
+   {
+    "name": "verification_interval",
+    "lines": 7,
+    "generic": true,
+    "what": "第 V-B 节的验证区间 VI_k = VR_k − 其余候选 VR 的均值。"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "fedguard.ops.text.insert_trigger",
+    "what": "在文本的随机词位插入一个词；库里没有这个算子，已在插件文件里写成模块级函数（见 new_helpers）。"
+   },
+   {
+    "name": "vocabulary / token-id 查找",
+    "what": "把客户端签名的哈希映射成词表里的触发词 token 并定位对应的词嵌入行：ModelHandle 不暴露词表或 token id（tokens 只对给定样本分词），插件也不允许 import 哈希库，这一步只能在库外做。"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "客户端身份签名 Sig 与公钥 Kpub（签名用于派生触发词）",
+    "where": "训练开始前一次；客户端侧 → 服务器侧",
+    "provided": "partly",
+    "via": "CLIENT_ANNOUNCE + SERVER_EXCHANGE 能传小记录，服务器在 `reports` / `ReportView.messages` 里读；但插件既不能做数字签名也不能算哈希（允许的 import 里没有 hashlib，也没有密钥类 resource），签名必须由宿主或防御方在库外生成。"
+   },
+   {
+    "data": "目标模型的 tokenizer / 词表（把签名哈希映射为触发词 token）",
+    "where": "服务器侧，首次下发之前",
+    "provided": "no",
+    "via": "ModelHandle 没有词表或 token-id 接口，插件也拿不到 tokenizer；触发词只能由防御方在库外选好，作为 `watermark_triggers` 资源传入。"
+   },
+   {
+    "data": "服务器本地数据集 D_server（用来构造投毒水印集 D_w）",
+    "where": "服务器侧，首轮之前",
+    "provided": "no",
+    "via": "`data` 是客户端侧的数据类别，服务器只有 uploads / aggregate / reports；服务器即便作为客户端参与，DataView 也只给样本与 text(index)，没有 text→样本 的逆映射，edit_samples 造不出新的投毒样本。"
+   },
+   {
+    "data": "水印嵌入向量 W_w 与被替换下来的原始嵌入行 W_u、W_k",
+    "where": "服务器侧，训练前一次性生成，之后每轮使用",
+    "provided": "no",
+    "via": "库里没有任何接口能读或写词嵌入行：ModelHandle.parameters/layout 只给名字与形状，lora() 只装 LoRA 因子，transform_broadcast / replace_global 只搬 LoRA 状态字典；W_w 可以作为 resource 带进来，但装不进模型。"
+   },
+   {
+    "data": "待下发的全局模型，以及逐客户端一份的副本",
+    "where": "服务器侧，每轮下发之前（SERVER_DISTRIBUTE）",
+    "provided": "partly",
+    "via": "OutgoingView.state() / for_client() 与 `transform_broadcast` 提案存在且是逐客户端的，但载体只有 LoRA 状态字典，两行词嵌入的替换搭不上车。"
+   },
+   {
+    "data": "客户端本地 PEFT 训练结果（只更新 LoRA，词嵌入不更新、不上传）",
+    "where": "客户端侧，每轮本地训练结束",
+    "provided": "yes",
+    "via": "`local_update` / ClientUpdate.lora；库本来就只搬 LoRA 因子状态，恰好满足 EmbTracker 对客户端的要求。"
+   },
+   {
+    "data": "聚合后的新全局模型",
+    "where": "服务器侧，每轮 FedAvg 之后（SERVER_POST_AGGREGATE）",
+    "provided": "yes",
+    "via": "AggregateView.result 与 .global_delta()。"
+   },
+   {
+    "data": "服务器侧在 D_w 上、以与客户端相同的可训练范围（词嵌入冻结）跑的训练循环",
+    "where": "服务器侧，每轮聚合之后",
+    "provided": "no",
+    "via": "服务器侧没有训练步、没有优化器，也没有任何动作能训练参数；replace_global 只能换一份 LoRA 状态，而 D_w 本身也造不出来（见上一条）。"
+   },
+   {
+    "data": "对被审计模型的黑盒查询权限；式 (2) 的碰撞检查还需要每个客户端各自的带水印模型副本",
+    "where": "论文在训练之外；本移植在每轮聚合之后",
+    "provided": "partly",
+    "via": "部署传入 `probe=` 时 SERVER_POST_AGGREGATE 有 `model_handle`，generate / logprob 就是黑盒查询；但库里没有轮外位置，逐客户端副本也因注入侧搬不进来而不存在。"
+   },
+   {
+    "data": "每个候选客户端的触发词、目标输出或目标标签，以及 t 条验证样本",
+    "where": "服务器侧，验证时",
+    "provided": "no",
+    "via": "服务器既没有 tokenizer/词表也没有数据集；由防御方作为 `watermark_triggers` 与 `verification_prompts` 资源提供（论文没说 t 条样本从哪来）。"
+   }
+  ],
+  "external_state": [
+   "客户端签名/公钥与哈希→触发词的映射（步骤 1），由服务器与 CA 在库外保存",
+   "触发器集合：通用触发器 Tr_u 与每客户端一个的 Tr_k（步骤 2），在库外选定",
+   "水印嵌入 W_w 以及被替换下来的原始嵌入行 W_u、W_k（步骤 1/2 的产物）",
+   "水印训练集 D_w，以及构造它的 D_server（步骤 3）",
+   "逐客户端的带水印模型副本（步骤 2 下发的那一份，每个改两行嵌入）",
+   "被审计的可疑模型本体与包住它的 ModelHandle；若泄露物是同一基座上的 LoRA 适配器，还有它的状态字典（插件参数 `suspicious=`）",
+   "CA 的时间戳备案（第 V-K 节覆盖攻击的裁定依据）"
+  ],
+  "missing_runtime": [
+   {
+    "what": "没有任何接口能读写模型的词嵌入矩阵：更新是 LoRA 状态字典，ModelHandle.parameters/layout 只给名字与形状，lora() 只装适配器因子，transform_broadcast / replace_global 的载体也只有 LoRA 状态。",
+    "blocks": "步骤 4、5、8，也就是水印本体：W_w 的训练、下发前 Tr_k←W_w 与 Tr_u←W_u 的逐客户端替换、每轮的水印强化训练。EmbTracker 的核心因此留在库外，能移植的只是对库外注入的水印做溯源。"
+   },
+   {
+    "what": "没有服务器侧的数据视图，也没有 text→样本 的逆映射（DataView.text_of 不可逆），无法把新造的投毒样本交给 edit_samples。",
+    "blocks": "步骤 3（水印训练集 D_w），并连带使步骤 8 没有训练数据。"
+   },
+   {
+    "what": "插件拿不到词表/tokenizer，也不能用哈希库（允许的 import 里没有 hashlib）。",
+    "blocks": "步骤 1、2（签名→触发词 token、触发器集合构造），两者只能变成防御方资源。"
+   },
+   {
+    "what": "十个位置全部在联邦轮内，没有轮外/离线入口；服务器侧也没有训练步。",
+    "blocks": "论文把步骤 9（对野外可疑模型的验证）放在训练之外，本移植只能挂在 SERVER_POST_AGGREGATE；步骤 8 的训练同样没有落点。"
+   },
+   {
+    "what": "服务器默认没有可运行模型，声明 model_handle 的插件在部署不传 probe= 时会在第一个 SERVER_POST_AGGREGATE 抛 LookupError。",
+    "blocks": "不提供模型的部署里的步骤 9。"
+   }
+  ],
+  "deviations": [
+   "只移植了验证/溯源这一半（步骤 9，以及步骤 10 的 VR/VI/排他部分）；注入流水线（步骤 2–5、8）在本库里无法表达，未移植。",
+   "论文在训练之外验证野外模型；库没有轮外位置，插件改挂在 SERVER_POST_AGGREGATE、每轮聚合后运行：对聚合结果就是论文图 4 的逐轮 VR，对被审计模型就是式 (3) 的归属（防御方把 `probe` 指向它）。",
+   "式 (2) 的跨客户端碰撞检查没有移植：它要比较两个不同客户端各自的带水印副本，而这些副本依赖未移植的注入步骤；式 (3) 自带的排他条款（其余候选 VR < gamma）已移植，多触发词命中的模型因此报为不可归属。",
+   "触发词、目标与验证样本文本都是防御方资源（论文步骤 1 的签名→token 映射留在库外）。",
+   "生成式任务的命中判定用贪心续写里的子串匹配、分类式任务用所给标签上的 logprob argmax，而论文的 ACC/VR 口径是 Exact/Keyword Matching Rate。"
+  ],
+  "open_choices": [
+   "gamma 默认 0.9：论文第 IV-D 节只说 predefined，0.9 取自其表 II 的评测设置。",
+   "插入位置 p 用 ctx.rng 在词位间均匀取，插入次数 n 取 1：论文只写 p 是随机位置，未给 n。",
+   "t 条验证样本是防御方给的一份共享干净文本池，触发词由插件在查询时插入；论文没说这些样本是否共享、是否来自 D_server、是否复用投毒样本。",
+   "分类口径用 ModelHandle.logprob 在所给 labels 上取 argmax，对应论文的“预测标签等于目标标签”。",
+   "生成口径为贪心续写（max_new_tokens = 32）中的目标子串匹配。",
+   "候选集合就是 watermark_triggers 的键集合，不按本轮是否参与过滤。",
+   "若泄露物是同一基座上的 LoRA 适配器，用构造参数 `suspicious=` 经 handle.lora 装入后再查询；句柄本身已包住可疑模型则留 None。",
+   "不可归属的结果写进 evidence[\"attributed\"] = None（论文的 False），不抛异常。"
+  ],
+  "needs_from_authors": [
+   "通用触发器 Tr_u 的生成规则（步骤 2 只说服务器生成它）",
+   "哈希值到词表 token id 的映射细节：越界、一个词被切成多个 token、两个客户端撞到同一 token 时如何处理",
+   "验证样本数 t 的取值，以及这 t 条样本的来源",
+   "式 (2) 的碰撞阈值 sigma 的取值，以及相似度 Sim 的具体口径",
+   "触发词插入次数 n 的取值",
+   "每轮水印强化训练的 epoch 数与学习率，是否复用第 V-A 节的一次性训练设置",
+   "每客户端多个触发词时如何分配（论文只按“一组”做实验）",
+   "第 V-K 节时间戳的格式与 CA 备案流程"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "能/不能的分界是机械可核的：库面朝模型的所有接口都只承载 LoRA 状态字典，没有任何接口读写词嵌入行，注入侧确实搬不进来；能搬的验证/溯源半边已经实现，并在合成句柄上经真实 OpenFedLLMGuard + GuardRunner 跑通（静态检查、契约、7 个测试全过）。不给 high 是因为论文留白多（触发词生成、t、sigma、强化训练计划都以资源代替），且把验证挂到 SERVER_POST_AGGREGATE 是对“训练之外”的一处解读。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "EmbTrackerTracing",
+    "name": "embtracker_tracing",
+    "side": "server",
+    "stages": [
+     "server_post_aggregate"
+    ],
+    "needs": [
+     "model_handle"
+    ],
+    "resources": [
+     "verification_prompts",
+     "watermark_triggers"
+    ],
+    "acts": [],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 124
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 176,
+  "test_lines": 119,
+  "test_summary": "7 passed in 1.05s"
+ },
+ "status": "passed",
+ "tokens": 176694,
+ "cache_read_tokens": 2268416,
+ "seconds": 398.9
+}

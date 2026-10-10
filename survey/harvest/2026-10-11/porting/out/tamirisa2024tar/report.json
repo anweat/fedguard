@@ -1,0 +1,191 @@
+{
+ "key": "tamirisa2024tar",
+ "verdict": "not_expressible",
+ "plugins": [
+  {
+   "name": "tar",
+   "class": "TAR",
+   "side": "server",
+   "stages": [
+    "server_distribute"
+   ],
+   "needs": [],
+   "resources": [
+    "adversary_configs",
+    "base_model",
+    "dpo_reference",
+    "forget_probe",
+    "retain_data"
+   ],
+   "acts": []
+  }
+ ],
+ "steps_total": 12,
+ "steps_ported": 0,
+ "steps_outside": 3,
+ "ops_used": [],
+ "new_helpers": [],
+ "missing_ops": [
+  {
+   "name": "entropy_loss",
+   "what": "武器化设置的 L_TR：对一批样本的输出分布取（负）熵并作为训练目标反传。fedguard.ops 里只有把熵当统计量的 density.shannon_entropy(p)（对非负向量归一化后求 nats，没有图、不面向 logits），没有可微的逐 token 或逐批熵损失；也没有任何视图给出带图的 logits（LossView 的 outputs 属性不在 <reference> 里，按规则不可依赖）。"
+  },
+  {
+   "name": "dpo_loss",
+   "what": "拒绝设置的 L_TR：由 chosen/rejected 对与参考 log-prob 组成的可微 DPO 损失。ops.probe 是特征上的逻辑回归，与此无关；ModelHandle.logprob 返回 Python float 列表，没有图；参考 log-prob 只能作为资源传入。"
+  },
+  {
+   "name": "inner_loop_meta_gradient",
+   "what": "把内层 K 步 SFT 当作 θ 的可微函数、按直线估计器取 ∇_θ L_TR(attack(θ)) 的算子（一阶 MAML 式元梯度）。库里没有任何算子或运行时把一段优化轨迹当作可微对象。"
+  },
+  {
+   "name": "representation_anchor",
+   "what": "式 2 第二项：同一批次上两个模型（θ_{i-1} 与 θ_G0）残差流激活之间的可微 ℓ2 距离。ModelHandle.hidden 只给单个模型、detach 后的 CPU 张量；没有第二个参考模型的类别。"
+  }
+ ],
+ "extraction_needs": [
+  {
+   "data": "未加防护的基础模型权重 θ 与初始防护后的 θ_G0（全参数，论文为 Llama-3-8B-Instruct）",
+   "where": "训练之外、发布前；一轮内最近的表面是 SERVER_DISTRIBUTE 的 outgoing",
+   "provided": "no",
+   "via": "STAGE_KINDS 的每个位置只承载 LoRA 状态字典：outgoing、aggregate、uploads 与 base 引用都是 PEFT 状态（<module>.lora_A.weight / lora_B.weight）。没有基座权重的数据类别；ModelHandle.parameters(scope=all) 只在防御方自备句柄时列出基座参数名，拿不到值，也不能写回。缺的是基座权重的读与写。"
+  },
+  {
+   "data": "内层 K=64 步 SFT 攻击轨迹的参数坐标（每个坐标是一份可评估的模型状态）",
+   "where": "训练之外，防御方自己的优化器循环里",
+   "provided": "no",
+   "via": "插件在每个位置只被调用一次，不拥有训练循环：没有位置让插件选择攻击数据、推进自己的优化器或在坐标之间切换模型参数；CLIENT_STEP 只观察宿主自己的那一步。"
+  },
+  {
+   "data": "留出的安全探针批次 x_TR（每个外层步一个 minibatch，该步所有内层 L_TR 复用同一批）",
+   "where": "外层步开始时，防御方侧",
+   "provided": "partly",
+   "via": "样本可以作为 resource 传入，DataView 也能给客户端本地样本；但 KIND_SIDE 把 data 划给 client，服务端任何位置都没有数据类别，一轮里也没有第二个（防御方自己的）批次的入口。"
+  },
+  {
+   "data": "retain 批次 x_r 与初始防护模型在其上的 residual stream 激活 h_{θ_G0}(x_r)",
+   "where": "retain 项的前向，防御方侧",
+   "provided": "no",
+   "via": "ModelHandle.hidden(samples, layer, pool) 能取某一层的状态，但返回 CPU 上 detach 的张量，且只针对句柄包着的那一个模型；没有第二个（参考）模型的句柄类别，也没有可微激活。"
+  },
+  {
+   "data": "以层输出为变量的可微锚定项 ‖h_{θ_{i-1}}(x_r) − h_{θ_G0}(x_r)‖²（式 2 第二项）",
+   "where": "retain 项的损失里",
+   "provided": "no",
+   "via": "LossView 的图只到 named_parameters()（gradients_of、per_sample_losses、loss_on）；没有以隐藏状态为变量的损失面，也没有第二个模型的激活。"
+  },
+  {
+   "data": "可微的 L_TR：武器化设置里在攻击坐标上求值的输出分布熵；拒绝设置里 chosen(refusal)/rejected(harmful) 对的 DPO 损失",
+   "where": "每个子采样坐标的一次前向加反传",
+   "provided": "no",
+   "via": "见 missing_ops；ModelHandle.logprob 返回 float 列表（无图），ProbeView.score 只给 LoRA 打分，LossView 只覆盖宿主当前这一步的损失。"
+  },
+  {
+   "data": "直线估计器意义下的元梯度 ∇_{θ_{i-1}} L_TR(attack(θ_{i-1}), x_TR)，以及沿子采样坐标累积的 g_TR",
+   "where": "外层更新的梯度",
+   "provided": "no",
+   "via": "没有算子或运行时把内层优化做成可微函数；库的动作只搬运 LoRA 状态或替换宿主当前步的梯度（transform_gradients 作用于本步的 .grad 缓冲）。"
+  },
+  {
+   "data": "把加权外层更新 θ_i ← θ_{i-1} − η(λ_TR·g_TR + λ_retain·g_retain) 落到基座权重上",
+   "where": "外层步结束，发布前",
+   "provided": "no",
+   "via": "ACTION_STAGES 里所有模型形状的动作（transform_broadcast、transform_received、transform_update、replace_global）传的都是 PEFT 状态字典；ctx.state 能跨轮保存 Python 对象，但库不会步进任何优化器。"
+  },
+  {
+   "data": "外层优化器状态（ScheduleFree AdamW，η=2e-5 或 6e-5，N=750 或 100 步）与内层每次外层迭代重建的优化器",
+   "where": "外层循环，训练之外",
+   "provided": "no",
+   "via": "没有任何位置或动作承载优化器；轮的边界是联邦的轮，不是 TAR 的 N 个外层步；论文还要求把外层优化器搬到 CPU 以免与内层优化器冲突。"
+  },
+  {
+   "data": "训练期对手集合 A_train 的采样（数据、AdamW、学习率网格、No Warmup、batch 64、全参数、K=64，以及 β(6.0, 3.0) 的 R→F 切换）",
+   "where": "每个外层步的内层循环",
+   "provided": "no",
+   "via": "配置本身可以作为 resource（防御方自备），但没有任何运行时能执行它（见 missing_runtime）；学习率采样本可用 ctx.rng。"
+  },
+  {
+   "data": "（拒绝设置）在 Anthropic-HH-RLHF 全量上预计算的参考模型 DPO log-prob 与改写后的 chosen/rejected 划分",
+   "where": "训练前，防御方侧",
+   "provided": "partly",
+   "via": "可以作为 resource 传入（形式由防御方决定），但把 log-prob 变成可微 DPO 项的算子不存在（见 missing_ops）。"
+  }
+ ],
+ "external_state": [
+  "θ 与 θ_G0 两份全参数检查点（论文：Llama-3-8B-Instruct），以及 FSDP 加 DeepSpeed ZeRO-3 的分片参数、优化器与梯度状态（8 张 A100-80GB）",
+  "初始安全防护本身：Random Mapping 的 rand_hashed 目标与训练配方（优化器、学习率、步数论文都未给），或一份已经做过拒绝训练（RLHF/DPO）的 θ_G0",
+  "遗忘与安全代理数据及 80/20 划分：Pile-bio Forget 7,558、Camel-bio Forget 54,258、OOD Forget 598,933、私有化学安全数据、CTFtime 网络安全 writeup 18k 余条；held-out 分片即 D_TR",
+  "retain 与能力代理数据：Pile-bio Retain 42,426 与 Magpie-Align 的混合（拒绝设置只用 Magpie-Align）",
+  "A_train：每个武器化域 6 个、拒绝设置 3 个 SFT 攻击配置（数据、AdamW、学习率采样集、No Warmup、batch 64、全参数、K=64），加上内层学习率采样与 β(6.0, 3.0) 的 R→F 切换抽样",
+  "内层攻击的优化器状态（每个外层迭代重建）、K 个轨迹坐标缓冲、g_TR 累加缓冲，以及搬到 CPU 的外层 ScheduleFree AdamW 状态",
+  "拒绝设置：改写后的 Anthropic-HH-RLHF 划分（rejected 补全换成 refusal）与在整个数据集上预计算的参考 log-prob",
+  "交付物 θ_G（新的基座权重）以及可选的 100 步 Magpie-Align 良性 SFT 配方（学习率与 batch 未给）",
+  "评测资源：WMDP 3,668 题、MMLU 57 个任务、HarmBench、MT-Bench、Toxic-DPO v0.2 541 条、26 个武器化与 5 个拒绝测试期对手；方法运行时不需要它们"
+ ],
+ "missing_runtime": [
+  {
+   "what": "训练之外或发布前的位置：STAGE_KINDS 的 11 个位置全部在联邦轮内（SERVER_DISTRIBUTE 到 SERVER_POST_AGGREGATE），没有轮前或发布前的位置",
+   "blocks": "TAR 的整条流水线（论文自己把 stages 标为 outside_training）；一轮内最近的表面只有 SERVER_DISTRIBUTE 的 outgoing LoRA 状态"
+  },
+  {
+   "what": "插件拥有训练循环：自己选数据、自己建并步进优化器、在内层坐标之间切换模型参数",
+   "blocks": "步骤 3（K=64 步 SFT 攻击轨迹）与步骤 4、5（坐标复用与子采样）"
+  },
+  {
+   "what": "把内层优化写成 θ 的可微函数（直线估计器或一阶 MAML）并取任意损失对基座参数的梯度",
+   "blocks": "步骤 6（L_TR 在攻击坐标上求值）、步骤 7（元梯度）、步骤 8（g_TR 累积）"
+  },
+  {
+   "what": "承载基座权重（全参数）的读与写：没有数据类别、没有视图、没有动作；能替换模型的动作都只收 PEFT 状态字典",
+   "blocks": "步骤 9（retain 梯度对 θ）、步骤 10（θ 的加权外层更新）、步骤 11（返回 θ_N）"
+  },
+  {
+   "what": "第二个模型 θ_G0 与可微的残差流激活（式 2 的锚定项）",
+   "blocks": "步骤 9 的第二项"
+  },
+  {
+   "what": "可微的输出分布熵或 DPO 损失面（带图的 logits 或 log-prob）",
+   "blocks": "步骤 6a（武器化熵）与 6b（拒绝 DPO）"
+  },
+  {
+   "what": "服务端的数据类别与可运行模型：KIND_SIDE 里 data 属 client，OpenFedLLM 服务端适配器默认不提供 model_handle（要防御方以 probe 传入）",
+   "blocks": "任何把外层循环放到服务器一侧的尝试；防御方的 D_TR、D_retain、A_train 没有入口"
+  },
+  {
+   "what": "与 LoRA 因子空间不同的参数规模与显存管理：每外层步最多 K=64 个内层步的激活与优化器状态，论文用分片梯度累积避免 K 个计算图",
+   "blocks": "步骤 3 与步骤 10 的现实可行性（论文自称朴素实现 prohibitively expensive，8B 全参数、8 张 A100）"
+  }
+ ],
+ "deviations": [
+  "论文是集中式、发布前一次性的权重改造，没有联邦轮、客户端或聚合；本移植没有把任何一步映射进联邦流程，因为 TAR 的攻击、元梯度、锚定与外层更新全部定义在完整基座权重 θ 上，映射后每一步都会变成另一个方法。",
+  "规则 4 允许的 LoRA 因子空间替换（ctx.uploads.factor_delta）没有做：TAR 的攻击是对基座权重的全参数 SFT，safeguard 要写进发布的权重；换成 LoRA 因子空间会改掉方法的对象与交付物。",
+  "步骤计数：12 步中 3 步按规则 3 不属于插件（步骤 1 初始防护的离线训练、步骤 3 内层 SFT rollout、步骤 12 可选良性 SFT），其余 9 步是防御计算本身但没有任何承载点，故 0/12/3。",
+  "空壳挂在 SERVER_DISTRIBUTE（把产出的模型交出去的最近表面，同批 huang2024vaccine 用同一位置），不读数据、不提动作；它的 findings 只记录拒绝原因。",
+  "TAR 的产物是新的基座权重 θ_G；库里所有模型形状的动作都只传 PEFT 状态字典，因此连交付物本身都没有对应物。"
+ ],
+ "open_choices": [
+  "式 2 的锚点参考写的是 θ_G0（式 2 与 4.2 节），而 Algorithm 1 第 10 行写 h_θ；两者不是一回事，实现时必须选一个（论文的经验结论支持 θ_G0）。",
+  "熵损失的定义：哪些 token 位置、哪个分布、如何对序列归约（附录 C.3 未说明）。",
+  "坐标子采样后 g_TR 的归一化：Algorithm 1 写 1/K，但只有子采样坐标参与；每 4 个优化步也只是举例。",
+  "外层 D_TR 与 D_retain 的 batch size、每步采样条数（论文只给内层 batch 64）。",
+  "式 2 中 L_LM 与 ℓ2 锚定项的相对权重（Algorithm 1 直接相加）。",
+  "拒绝设置的 DPO β、chosen 与 rejected 的改写流程、是否做长度归一化。",
+  "R→F 切换点 β(6.0, 3.0) 的语义：是 64 步的比例还是绝对步数。",
+  "Algorithm 1 的 for k=1..K 与附录 C.4 一次 rollout 复用 K 个坐标如何对应（K 是否随子采样改变）。",
+  "Random Mapping：优化器、学习率、步数、batch，rand_hashed 的向量维度与逐层逐 token 的哈希对齐，以及式 3 的绝对值记号是否为原意。",
+  "拒绝设置的初始防护用 RLHF 还是 DPO、用什么数据（正文只说 can include，实验直接用 Llama-3-8B-Instruct 自带拒绝训练）。",
+  "额外 100 步良性 SFT 的学习率、batch size、是否冻结层。"
+ ],
+ "needs_from_authors": [
+  "熵损失的实现：token 位置、词表分布、归约方式，文字无法确定，只有代码能。",
+  "直线估计器在实现里怎么接：是否仍循环 K 次、哪些坐标参与、g_TR 的实际归一化。",
+  "Random Mapping 的 rand_hashed 参考实现：如何为每个 token 在每层残差流索引生成固定高斯向量、向量维度、与 hidden 维度的对齐。",
+  "拒绝设置 DPO 的 β、chosen/rejected 的改写脚本，以及参考 log-prob 的预计算细节。",
+  "外层 D_TR 与 D_retain 的 batch size 与每步采样数（论文两处都未给）。",
+  "A_train 的代码化配置（含私有化学安全数据），以及 β(6.0, 3.0) 切换点的采样语义。",
+  "100 步良性 SFT 的超参数。",
+  "式 3 的绝对值记号是否为论文原意。"
+ ],
+ "confidence": "high",
+ "confidence_reason": "结论依赖的结构性事实都在树里读到，不靠推断：STAGE_KINDS 的 11 个位置全部在轮内；KIND_SIDE 把 data 划给 client，服务端位置没有数据类别；ACTION_STAGES 的模型形状动作（transform_broadcast、transform_received、transform_update、replace_global）全部传 LoRA 状态字典；ModelHandle 是前向探针（必须还原模型），hidden 返回 detach 的 CPU 张量、没有写回参数的方法；LossView 的图只到 named_parameters()；runner 在固定位置调用插件一次，插件不拥有优化器。插件文件与测试按本批 not_expressible 的约定写成可挂载空壳加惰性断言，声明最小化（needs 与 acts 为空），静态检查与契约检查都通过。降到 high 以下的一个理由是未能本地执行：本机是只读策略且没有可写临时目录（torch 因此无法导入），所以空壳的挂载路径与测试断言是逐行读 runner.py、openfedllm.py、harness.py 得到的，没有运行过；但负结论本身不依赖运行，它依赖的是接口里根本没有承载点。"
+}

@@ -1,0 +1,4 @@
+== runs/q35_sweep_4B/rec_activation_clustering/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009213500
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client activation_clustering       client_pre_train            20      0       0      20    10.04  {"groups": {"": {"smaller_cluster_share": 0.4166666666666667, "silhouette": 0.15443435116322074, "flagged": fa
+changes: rounds with weights=4, activation_clustering: mask_samples=20

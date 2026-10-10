@@ -1,0 +1,308 @@
+{
+ "key": "ax2510.16830",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 43587,
+    "outputTokens": 69519,
+    "cacheReadTokens": 617216,
+    "cacheWriteTokens": 0,
+    "totalTokens": 730322
+   },
+   "seconds": 284.4,
+   "errors": 1
+  },
+  {
+   "round": 2,
+   "usage": {
+    "inputTokens": 50516,
+    "outputTokens": 29794,
+    "cacheReadTokens": 191232,
+    "cacheWriteTokens": 0,
+    "totalTokens": 271542
+   },
+   "seconds": 114.0,
+   "errors": 1
+  }
+ ],
+ "prompt_chars": 99422,
+ "report": {
+  "key": "ax2510.16830",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "vft_quota_sampler",
+    "class": "VFTQuotaSampler",
+    "side": "client",
+    "stages": [
+     "client_pre_train",
+     "client_post_train"
+    ],
+    "needs": [
+     "data"
+    ],
+    "resources": [
+     "quota"
+    ],
+    "acts": [
+     "mask_samples"
+    ]
+   },
+   {
+    "name": "vft_audit_gate",
+    "class": "VFTAuditGate",
+    "side": "server",
+    "stages": [
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads"
+    ],
+    "resources": [
+     "vft_verdicts"
+    ],
+    "acts": [
+     "select_and_weight"
+    ]
+   }
+  ],
+  "steps_total": 20,
+  "steps_ported": 2,
+  "steps_outside": 18,
+  "ops_used": [
+   "fedguard.ops.sampling.subsample"
+  ],
+  "new_helpers": [],
+  "missing_ops": [
+   {
+    "name": "fixed_point_quantize",
+    "what": "map a real tensor to round(S x) with S = 2^b and carry an overflow/error budget (Eq. (5)); fedguard.ops has clipping, scaling and noise but no quantization"
+   },
+   {
+    "name": "hash / merkle_commit / vector_commit",
+    "what": "no operator computes a digest of a state dict, a Merkle root or a Pedersen/KZG commitment, so c_D, c_u, h_t, h_Pi and the optimizer-state commitments cannot be produced or checked"
+   },
+   {
+    "name": "range_proof / interval_membership",
+    "what": "Eq. (1) is decided per coordinate with tolerance tau = delta_sm + eps_fxp; nothing in fedguard.ops takes an acceptance predicate with a tolerance or a bound"
+   },
+   {
+    "name": "verify_proof / fold_proofs",
+    "what": "no proof-system operator of any kind; this is also the cryptographic protocol that rule 3 keeps out of plugins, so it is listed for completeness of the cost measurement, not as a request"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "the samples of one training step -- the selection indicator e_t that Eq. (3) counts and the step proof is bound to",
+    "where": "client, inside the step, after the forward and before the backward (CLIENT_LOSS)",
+    "provided": "partly",
+    "via": "LossView.sample_ids() gives the row hashes of the current batch, but only under the trainer extension and only for rows the adapter could match (None otherwise); CLIENT_STEP has no batch view at all and no plugin sees or re-derives the sampler's draw"
+   },
+   {
+    "data": "the epoch boundary that the quota gamma of Eq. (3) is defined over",
+    "where": "client, between rounds",
+    "provided": "no",
+    "via": "the library knows ctx.round only; there is no epoch notion anywhere, so rounds_per_epoch comes from the defender (the paper is itself inconsistent here: one epoch by default vs 'every 10th epoch is public')"
+   },
+   {
+    "data": "the per-sample attributes the binning matrix M is built from (domain, register, length, policy tags, license id, preprocessing digest)",
+    "where": "client, before training (CLIENT_PRE_TRAIN)",
+    "provided": "partly",
+    "via": "DataView.manifest -> SampleRecord(index, hash, source, length): a provenance tag and the length of the hashed text in characters; license_id, proc_digest, policy_tags and register never reach a plugin, and length is characters, not tokens, so Table IV's token ceilings cannot be applied"
+   },
+   {
+    "data": "the local quota commitment (and later the bin-counter disclosure) the client uploads",
+    "where": "client CLIENT_POST_TRAIN -> server SERVER_AGGREGATE",
+    "provided": "partly",
+    "via": "findings.messages carries small typed records (MESSAGE_LIMIT_BYTES 65536), so plain counters arrive as a self-report readable through ReportView.messages; no commitment scheme exists, so the server can read the numbers but cannot bind or check them"
+   },
+   {
+    "data": "the step index t and the public seed s from which the public-mode batch is re-derived",
+    "where": "client, every step",
+    "provided": "no",
+    "via": "train_trace/TraceView gives per-step scalars recorded after the fact, not the sampler's inputs; no hook or operator re-derives or vetoes a batch, so third-party replay (steps 4-5) has nothing to attach to"
+   },
+   {
+    "data": "the optimizer state (m_t, v_t) and the per-step hyperparameters Eq. (2) binds, schedule included",
+    "where": "client, before and after each optimizer step (CLIENT_PRE_STEP / CLIENT_STEP)",
+    "provided": "no",
+    "via": "GradientView exposes gradients and parameter values only; no optimizer-state kind exists; eta appears only as the 'lr' scalar handed to on_step after the step (TraceView.series('lr'))"
+   },
+   {
+    "data": "the activations, per-token logits and per-token loss the circuit arithmetizes",
+    "where": "client, each step",
+    "provided": "partly",
+    "via": "LossView gives batch, outputs, loss, per_sample_losses(), gradients_of() (one backward each) and loss_on(); deeper quantities cost ModelHandle passes (hidden/activations/per_sample_gradients) and the client handle may be absent"
+   },
+   {
+    "data": "the frozen backbone tensors, to tie the adapter subspace to public commitments",
+    "where": "client and the auditor's side",
+    "provided": "no",
+    "via": "ModelHandle.layout(group, scope='all') gives base-weight names and shapes but never values, and no operator hashes a tensor into a commitment"
+   },
+   {
+    "data": "the leaf/epoch/final proofs travelling from client to aggregator, and the verdict they yield",
+    "where": "client upload (CLIENT_POST_TRAIN) -> server receive/aggregate",
+    "provided": "no",
+    "via": "the channel is messages (<= 65536 bytes) and attachments (tensors); a leaf proof is ~220 KB and a final proof ~4.1 MB (Table II) and nothing in the library verifies one, so the verdict enters as the vft_verdicts resource"
+   },
+   {
+    "data": "the committed dataset root c_D, the leaf digests, the counter commitment c_u, the manifest hash h_Pi, h_0 and the frozen-tensor commitments",
+    "where": "outside training, before the first round",
+    "provided": "no",
+    "via": "no field/hash/commitment/reference-string operator exists (RunSpec.extra is the only free-form slot and is not meant for proof material); this is defender-side state that only a resource can name"
+   },
+   {
+    "data": "the samples the client is about to train on this round, so that over-quota ones can be masked",
+    "where": "client, CLIENT_PRE_TRAIN",
+    "provided": "yes",
+    "via": "DataView.manifest (index, hash, source, length) plus the mask_samples action; ClientGuard.training_samples()/kept_indices()/training_hashes() report the outcome -- this one entry is what the port stands on"
+   }
+  ],
+  "external_state": [
+   "the VFT prover/verifier stack (SNARK over p ~ 2^255 with a Poseidon/Rescue sponge, cycle of curves or STARK folding, KZG SRS) and the per-client verdicts it produces -- resource `vft_verdicts`",
+   "the bin ceilings gamma of Eq. (3) at the granularity a plugin can see -- resource `quota`",
+   "the committed dataset tree with per-leaf digests, the counter commitment c_u, the public initialization hash h_0 and the frozen-backbone commitments",
+   "the policy manifest (sources, licenses, preprocessing digests, eligibility filters, sampler descriptor with s and sampler_version, PEFT structure, optimizer hyperparameters and schedule, approximation budgets), its hash h_Pi and the optional notary record",
+   "the lookup tables and error budgets for softmax/GELU/rsqrt (delta_sm, epsilon_fxp, tau)",
+   "the audit schedule: the thin subset of steps a client proves, the random subset the aggregator checks, and the coverage target q",
+   "the optional TEE image (VFT-FrontEnd + SamplerGuard) and the prover/verifier hardware tiers",
+   "the training procedure Pi as the host actually executes it (optimizer, schedule, clipping, batch size); the circuit is written against it"
+  ],
+  "missing_runtime": [
+   {
+    "what": "any epoch boundary -- the round is the only clock",
+    "blocks": "the per-epoch cumulative quota of Eq. (3); gamma can only be approximated through a defender-chosen rounds_per_epoch"
+   },
+   {
+    "what": "a view of the sampler or of the per-step selection indicator, and any action that can ask for a different batch",
+    "blocks": "verifiable sampling (steps 4-5) and the certificate half of step 6; masking can only drop samples the host already chose"
+   },
+   {
+    "what": "an optimizer-state (m_t, v_t) view and a per-step index",
+    "blocks": "the AdamW transition, its fixed-point form and the state commitments of steps 13-14"
+   },
+   {
+    "what": "base-weight values plus any hash or commitment operator",
+    "blocks": "the frozen-tensor equality of step 10 and all of steps 1, 2, 5, 14, 15"
+   },
+   {
+    "what": "a channel or field that can carry proof material (messages cap at 65536 bytes, a leaf proof is ~220 KB) and any proof operator",
+    "blocks": "steps 16-19 in full; the aggregator's audit has nothing to check"
+   },
+   {
+    "what": "an abort or rollback action for a round",
+    "blocks": "VFT's hard-error rule; it is expressed as excluding every participant, which leaves the previous global model in place, and there is no way to roll back only the tainted client's contribution"
+   },
+   {
+    "what": "a step-scoped view of which samples actually entered a batch",
+    "blocks": "the client's counters can only report planned admissions, not observed selection, so even the enforcement half of step 6 reports what it did rather than what happened"
+   }
+  ],
+  "deviations": [
+   "The cryptographic protocol is not ported (rule 3): no commitments, no field arithmetic, no proofs, no recursion; the verdicts arrive as the `vft_verdicts` resource, so what the plugins contain is VFT's decision rule, not VFT's verification.",
+   "Step 6 is counted as ported for its enforcement half only: the boolean quota check becomes a mask_samples drop; the quota certificate (commitment to e_t, range proof on gamma) is not implemented.",
+   "rounds_per_epoch replaces the epoch boundary the library does not expose; the paper's own epoch accounting is inconsistent (one epoch vs 'every 10th epoch is public').",
+   "Bins come from SampleRecord.source (the paper's domain attribute) by default; register/length/policy buckets need a defender-supplied bin_of, and the token ceilings of Table IV are out of reach because only character lengths are visible.",
+   "Over-quota samples are dropped, not replaced: no action can ask the host for a different batch, whereas VFT draws the batch from (s, t) (public mode) or inside the circuit (private mode).",
+   "Admission is charged per distinct sample hash and masking is by hash, so identical texts in one round are admitted or dropped together.",
+   "VFT's quota violation aborts aggregation; the library has no abort action, so the round is aborted by excluding every participant (in the harness the previous global model is then left in place).",
+   "A participant without a passing verdict is excluded by default, since VFT accepts only verified updates; on_missing='flag' is offered for deployments that want the gate as a monitor.",
+   "Taint persists in ctx.state until a verdict of 'ok' arrives, i.e. until the verifier attests a corrected manifest; a tainted client is removed from aggregation but is not stopped from training locally.",
+   "The client's bin counters travel as an ordinary untrusted message; VFT's local quota commitment is a proof object the library cannot carry, so the counters are readable but unbound.",
+   "The plugin proposes no weights: VFT does not reweight updates, and the risk score it reports is a boolean mapped to 0.0/1.0 for the recorder."
+  ],
+  "open_choices": [
+   "Default binning by the source tag alone; the paper's length and register buckets need edges it does not give.",
+   "Admission inside a bin's remaining budget is a uniform draw from ctx.rng taken in sorted bin order; the paper's public mode uses a CSPRNG seeded by (s, t).",
+   "rounds_per_epoch = 1 by default as the epoch-to-round mapping.",
+   "A bin absent from `quota` is unbounded (default_limit = inf), because the paper never says what an unlisted bin means.",
+   "The verdict vocabulary (ok / tainted / quota_violation) and the missing-verdict default are this plugin's construction, since the paper states outcomes rather than a status format.",
+   "Excluding every participant is the expression of 'abort the round', and exclusion is scoped to aggregation only.",
+   "The sizes of the thin local-proof subset and of the aggregator's random check are left to the verifier, as the paper does not give them.",
+   "The 0.0/1.0 participant score is an invention for the record, not a paper quantity."
+  ],
+  "needs_from_authors": [
+   "PROVEUPDATE pseudocode, announced in Sec. III.K but absent from the extracted text: without it the witness layout and constraint arrangement of a step proof cannot be defined, so no step-proof interface can be built.",
+   "The concrete softmax/GELU/rsqrt approximations (polynomial or rational form, clipping range, lookup table sizes, interpolation) and the numeric epsilon_fxp, tau and GELU budget; tau = delta_sm + epsilon_fxp cannot be instantiated from the paper.",
+   "Merkle tree arity and hash instantiation, plus the Pedersen/KZG parameters and SRS size.",
+   "How the binning matrix M combines domain, register and length into B rows and whether Eq. (3) is per attribute or joint; how Table IV's ceilings convert to batch size 64 and steps per epoch; how global quotas and fairness counters combine with local ones.",
+   "The size of the thin subset of steps a client proves, the size of the random subset the aggregator checks, and the test statistic and threshold of the probabilistic audit (only detection probabilities are reported).",
+   "Whether the proven fixed-point shadow computation is the released model or a parallel witness, and the recovery semantics after a tainted client is excluded (full re-aggregation vs rolling back its contribution).",
+   "The VFT-FrontEnd/SamplerGuard implementation, to see what per-step data the prover actually consumes."
+  ],
+  "confidence": "medium",
+  "confidence_reason": "The library-side facts (stages, kinds, actions, view methods, the 65536-byte message cap, the absence of any optimizer-state or proof operator) are read straight off the reference, and the two ported decision points are tested end to end on synthetic LoRA state dicts. What keeps this from high confidence is the paper side: PROVEUPDATE is missing, the binning and quota-to-runtime mapping is unspecified, and the paper's epoch accounting contradicts itself, so the plugin shapes here are my construction around two decisions whose verdicts are computed outside the library. One library fact was learned the hard way and is now respected by the test: the runner turns `proposals` into `actions` records and empties the field, so the mask is asserted through its applied effect (`kept_indices`/`training_samples`/`training_hashes`) and the client's report through `outbox()`, not through `findings.proposals` or the raw message keys. This environment has no fedguard checkout and is read-only, so the plugin logic was traced against the reference and the harness rather than re-run here."
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "VFTQuotaSampler",
+    "name": "vft_quota_sampler",
+    "side": "client",
+    "stages": [
+     "client_pre_train",
+     "client_post_train"
+    ],
+    "needs": [
+     "data"
+    ],
+    "resources": [
+     "quota"
+    ],
+    "acts": [
+     "mask_samples"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 89
+   },
+   {
+    "class": "VFTAuditGate",
+    "name": "vft_audit_gate",
+    "side": "server",
+    "stages": [
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads"
+    ],
+    "resources": [
+     "vft_verdicts"
+    ],
+    "acts": [
+     "select_and_weight"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 80
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "failed",
+  "errors": [
+   "tests failed:\n....F\n=================================== FAILURES ===================================\n____________ test_gate_excludes_a_tainted_client_and_keeps_the_rest ____________\ntest_port.py:76: in test_gate_excludes_a_tainted_client_and_keeps_the_rest\n    assert sorted(kept) == [0, 1, 3]\nE   assert [] == [0, 1, 3]\nE     \nE     Right contains 3 more items, first extra item: 0\nE     Use -v to get more diff\n=========================== short test summary info ============================\nFAILED test_port.py::test_gate_excludes_a_tainted_client_and_keeps_the_rest\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 4 passed in 0.90s\n"
+  ],
+  "plugin_lines": 189,
+  "test_lines": 119,
+  "test_summary": "1 failed, 4 passed in 0.90s"
+ },
+ "status": "failed",
+ "tokens": 193416,
+ "cache_read_tokens": 808448,
+ "seconds": 398.4
+}

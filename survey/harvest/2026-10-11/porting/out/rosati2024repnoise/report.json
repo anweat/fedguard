@@ -1,0 +1,157 @@
+{
+ "key": "rosati2024repnoise",
+ "verdict": "not_expressible",
+ "plugins": [
+  {
+   "name": "repnoise_immunization",
+   "class": "RepNoiseImmunization",
+   "side": "server",
+   "stages": [
+    "server_post_aggregate"
+   ],
+   "needs": [],
+   "resources": [],
+   "acts": []
+  }
+ ],
+ "steps_total": 11,
+ "steps_ported": 0,
+ "steps_outside": 3,
+ "ops_used": [],
+ "new_helpers": [],
+ "missing_ops": [
+  {
+   "name": "multi_kernel_gaussian_mmd",
+   "what": "no operator measures a distribution distance between two sample sets (fedguard.ops.density has a KDE, entropy and nearest-neighbour density ratios, but nothing that pairs activations with a noise sample). The paper uses a multi-kernel Gaussian MMD. A module-level helper is allowed by rule 1, but every activation the server side can be handed is detached, so it would return a number and not a loss term."
+  },
+  {
+   "name": "layerwise_lm_head_loss",
+   "what": "no operator applies the language-model head to an intermediate activation and takes its cross-entropy against the target tokens. ModelHandle offers only the loss of the model on samples through its final head (losses, logprob); the head is not reachable as a module or as a tensor."
+  }
+ ],
+ "extraction_needs": [
+  {
+   "data": "a mount point after aggregation and before the next broadcast, where the released global model can still be changed",
+   "where": "server, once per round, after the aggregate is formed (this port maps the pre-release step of the paper there)",
+   "provided": "yes",
+   "via": "Stage.SERVER_POST_AGGREGATE; ACTION_STAGES allows replace_global at it and AggregateView.result is the new global LoRA."
+  },
+  {
+   "data": "a runnable model on the server for the immunization forwards and backwards",
+   "where": "server, at every immunization step",
+   "provided": "yes",
+   "via": "the `model_handle` data kind. The host supplies none, so the defender passes one to the adapter (`OpenFedLLMGuard(..., probe=<HFModelHandle>)`); the plugin declares `model_handle` and the runner hands it in at SERVER_DISTRIBUTE, SERVER_RECEIVE, SERVER_AGGREGATE and SERVER_POST_AGGREGATE. On the Flower profile the kind is server-unavailable unless the app supplies a handle. A full handle is needed: the narrow HFProbe can only score a LoRA."
+  },
+  {
+   "data": "the paired refusal batch (b_harmless, b_harmful) for the same harmful questions, as token ids with labels",
+   "where": "server, at the start of every immunization step",
+   "provided": "partly",
+   "via": "no view carries a defender batch on the server; the corpus can only arrive as a `resources` asset, which the runner passes as an opaque value. ModelHandle.losses(samples) would consume it, but forward only, with the loss of the model through its final head and no graph; there is no server-side loss view and no collated batch in the trainer format that loss_on() could take."
+  },
+  {
+   "data": "the shared-token mask (intersection of b_harmless and b_harmful) of each pair",
+   "where": "server, before the two forwards of a step",
+   "provided": "partly",
+   "via": "ModelHandle.tokens(samples) returns the tokens of each sample, so the intersection is computable inside the plugin; but the mask exists to suppress positions in the layer-wise ascent and noise terms, and neither term has a runtime, so there is nothing for it to act on."
+  },
+  {
+   "data": "the post-MLP pre-residual activation of every layer, shape (B, T, d), with the autograd graph",
+   "where": "inside the harmful forward of every immunization step",
+   "provided": "partly",
+   "via": "ModelHandle.activations(samples, select=<MLP modules>, pool=none, what=output) captures the output of the MLP, which is exactly the position the paper asks for; HFModelHandle stores what its hook sees as .detach() and pools it onto the CPU, so the values are readable and not differentiable. ModelHandle.hidden(layer) returns the post-residual state that the paper rejects."
+  },
+  {
+   "data": "the layer-wise language-model loss l_ascent^l = L(LMHead(a_l), b_harmful), and the log of its layer mean",
+   "where": "after the activation capture, per layer, every step",
+   "provided": "no",
+   "via": "no interface applies a module to a tensor: ModelHandle.losses, logprob and generate all run the forward of the model itself through its final head on samples; LossView.outputs.logits is the final head of the host and is client-side only; parameters() and layout() return names and shapes, never weights."
+  },
+  {
+   "data": "the noise term of every layer, MMD(a_l, N(0,I)), as a differentiable scalar",
+   "where": "per layer, every step",
+   "provided": "no",
+   "via": "no MMD operator exists (see missing_ops), and the only server-side activation interface returns detached CPU tensors, so a term built on it cannot reach the model. The one differentiable activation path in the library is LossView.outputs.hidden_states on the client, and only when the app ran its forward with output_hidden_states: it is post-residual (the position the paper rejects), it sits inside the training step of the attacker, and it carries no language-model head."
+  },
+  {
+   "data": "the gradient of the composed loss l_all with respect to the weights of the model (every layer and the head)",
+   "where": "after the composition, before the optimizer step",
+   "provided": "no",
+   "via": "no interface takes a scalar built by a plugin on the server. ModelHandle.per_sample_gradients differentiates the per-sample LM loss of the model itself, one sample at a time, against a named parameter group; LossView.gradients_of differentiates a scalar built by a plugin but only against the trainable parameters of the host, on the client, where the batch is the batch of the client itself and not the pairs of the defender."
+  },
+  {
+   "data": "an optimizer step on the server model per immunization step (Adam, cosine schedule with 10% warmup, 1 epoch over the pairs)",
+   "where": "step 10 of the extraction, repeated over the corpus",
+   "provided": "no",
+   "via": "the server side owns no training loop and a plugin owns no optimizer; replace_global substitutes a state after the fact. On the client the optimizer of the host is the only stepper, one step per host batch, and a plugin cannot change the learning-rate schedule, the number of steps or the next batch."
+  },
+  {
+   "data": "standard Gaussian noise with the shape of an activation",
+   "where": "step 5, per layer, per step",
+   "provided": "yes",
+   "via": "ctx.rng, a numpy Generator seeded per plugin and round by the runner, with the global RNGs restored afterwards; the tensor is one torch call away from it. No library operator is needed."
+  },
+  {
+   "data": "the immunized checkpoint as the object that continues the run",
+   "where": "step 11, before the next broadcast",
+   "provided": "partly",
+   "via": "replace_global at SERVER_POST_AGGREGATE would carry it, but the runner validates the replacement against aggregate.result key by key and shape by shape, so it must be a LoRA state dict; the artifact of the paper is the full model, its ablation says that freezing the first ten layers ruins the defense, and base weights never reach a plugin as tensors."
+  }
+ ],
+ "external_state": [
+  "The paired refusal corpus: for each harmful question a harmful answer and a safe answer or refusal. The paper builds 18,106 pairs from BeaverTails and uses 10k of them (351 for the toxicity domain, 230 for the HEX-PHI extension) and names the collection of it as the expensive part. It would enter a port as a `resources` asset; the library never produces it.",
+  "An already safety-aligned base LLM with its tokenizer, and a server-side model handle over it (HFModelHandle): the host supplies no model on the server, so the defender has to pass one in as the probe of the adapter, and it has to be a full handle rather than the narrow HFProbe.",
+  "The harmful-content classifier that filters the generated refusals offline (deberta-v3-xsmall over about 330k BeaverTails pairs, F1 0.87): data preparation before the round, not a component of a plugin.",
+  "The immunization training loop itself: its optimizer (Adam, no weight decay), cosine schedule with 10% warmup, learning rate, epoch count, batch size and seed, and the 4-GPU placement of the reported runs. No plugin owns an optimizer or a schedule.",
+  "The attack stage that the immunization is meant to survive (harmful fine-tuning of the released checkpoint) and the evaluation resources (the harmfulness classifier, an LM evaluation harness, external judges): completely outside this library.",
+  "The release step, that is, publishing the immunized checkpoint in place of the aggregated one."
+ ],
+ "missing_runtime": [
+  {
+   "what": "a position outside the federated round. All ten stages of STAGE_KINDS lie inside a round and the placement of this method in its own extraction card is outside_training; GuardPlugin.setup(spec) is called once before the first round but carries no context, no view and no way to return a finding.",
+   "blocks": "the immunization as the paper runs it, a one-off pass over the pairs before release: steps 2-9 have nowhere to live."
+  },
+  {
+   "what": "a differentiable read of an intermediate activation, and a way to re-enter a forward pass with one (ModelHandle has no hook, patch or pre-forward method, and activations() detaches and moves to the CPU).",
+   "blocks": "step 6 (the MMD noise term) and the graph under step 3. The ablation of the paper shows that the noise term without ascent is worse than the base model and ascent without noise is nearly useless, so neither half is usable alone."
+  },
+  {
+   "what": "a way to apply a module (the language-model head) to a tensor held by a plugin.",
+   "blocks": "step 4 (the layer-wise tuned-lens loss) and through it steps 7, 8 and 9."
+  },
+  {
+   "what": "a backward pass for a scalar built by a plugin, and a server-side optimizer step.",
+   "blocks": "steps 9 and 10: the composite loss can be written down but never differentiated into the model, and nothing on the server can step the weights."
+  },
+  {
+   "what": "a server-side object that is the whole model rather than a LoRA state dict: replace_global validates against the aggregate, and base weights are visible to a plugin only as names and shapes.",
+   "blocks": "step 11 as the paper defines it (an immunized full checkpoint); a LoRA-shaped artifact would be a different object and is not the defense of the paper."
+  }
+ ],
+ "deviations": [
+  "The paper is centralized and outside any federated round (its own placement is outside_training); this port maps it to the position that its extraction card suggests for a federated run, SERVER_POST_AGGREGATE with replace_global. The mapping is a choice of the port, not of the paper.",
+  "Nothing of the method is implemented and no substitute was fabricated. The nearest expressible thing -- per-sample gradients of the harmful loss through ModelHandle.per_sample_gradients, added to the gradients of the client through transform_gradients -- is ascent-only (the paper shows the noise term is half of the method), acts on LoRA factors while the paper updates every weight, and would run the immunization of the defender inside the training step of the attacker. It is a different method.",
+  "The shell declares no needs, resources or acts, because a plugin that computes nothing must not claim data kinds, assets or interventions that it never uses. What a port would declare (needs {aggregate, model_handle}, acts {replace_global}, and the paired corpus as a resource) is written in the class docstring and repeated under external_state.",
+  "Step accounting: steps 2-9 are the computation of the method itself and are blocked here (steps_ported = 0); step 1 (constructing the pair corpus), step 10 (the optimizer step) and step 11 (releasing the checkpoint) are data preparation, ordinary training and delivery, which rule 3 leaves outside a plugin. Half of step 1, the per-batch MASK, is method-side arithmetic, but it is counted with the blocked steps because there is no per-layer loss for a mask to act on.",
+  "A defender who immunizes the model outside the library could hand the resulting LoRA state in as a resource and let a one-line plugin propose replace_global at SERVER_POST_AGGREGATE. That carries the artifact and no step of the method -- it is the outside-training placement again -- so it is deliberately not written as a partial port."
+ ],
+ "open_choices": [
+  "which of alpha and beta multiplies the noise term: eq. (5) and Algorithm 1 line 12 bind them oppositely, and Appendix G and Appendix J describe beta in the two opposite senses. An implementation has to pick one and record it (the pseudo-code is the more likely candidate).",
+  "the configuration of the MMD: number of Gaussian kernels, their bandwidths or length scales, biased or unbiased estimator, how many representation vectors per layer, whether tokens are pooled, whether representations are normalized. The paper gives only a multi-kernel MMD with a Gaussian kernel and an `exp` argument in the pseudo-code.",
+  "how MASK is applied: zeroing the loss at the shared positions or keeping only the non-shared ones, and whether the intersection is per pair or over the batch.",
+  "whether b_harmless and b_harmful are sampled as aligned pairs (Algorithm 1 samples them in two separate statements).",
+  "whether L(M_theta(a_l), b_harmful) of Algorithm 1 line 8 is the same quantity as l_ascent^l of line 12, and whether the layer-wise logits are detached when the final head is reused per layer.",
+  "batch size 8 (Appendix B.2) or 4 (Appendix L), and whether 8 means eight per dataset or eight in total.",
+  "what one immunization pass becomes in a round loop: the paper runs it once and reports that two epochs almost destroy the defense (0.12 to 0.78), so a per-round repetition has no support in the paper and would have to be decided.",
+  "whether the immunized object is the full model (the paper) or the LoRA factors that this library traffics in; the two differ exactly where the ablation of the paper says it matters (the first ten layers)."
+ ],
+ "needs_from_authors": [
+  "the MMD kernel count, bandwidths and estimator, and how many representation vectors per layer enter it: absent from the paper and from the code release that the checklist postpones.",
+  "how MASK is applied to the losses, and how the batch-level intersection is formed.",
+  "which binding of alpha and beta the released code uses, given the three-way contradiction in the paper.",
+  "whether the per-layer language-model logits are detached, and whether every layer shares the final head.",
+  "the optimizer details behind the reported runs (gradient accumulation, clipping, the 4-GPU placement) that would be needed to reproduce the reported 1:52 and 26.37 GB per card.",
+  "the exact pairing and sampling of the 10k pairs (with or without replacement, and the source split)."
+ ],
+ "confidence": "high",
+ "confidence_reason": "The interface facts are direct reads, not inference: ModelHandle (fedguard/views/model.py) has no method that applies a module to a tensor, returns weights or steps an optimizer; HFModelHandle.activations (fedguard/adapters/hf_model.py) stores what its forward hook sees as .detach() and pools it to the CPU; LossView.gradients_of (fedguard/views/client.py) differentiates only against the trainable parameters of the host and exists on the client side; GradientView carries the gradients of the host itself; and replace_global (fedguard/core/actions.py) validates a replacement against the aggregate, which is a LoRA state dict. The verdict follows because RepNoise is an optimization over the activations and weights of the full model, and the library offers no server-side training step at all, while the placement of the paper is outside_training, for which STAGE_KINDS has no stage. The residual uncertainty is about out-of-contract paths: a host extension that handed a plugin the raw model object would go around the declared ModelHandle protocol, and even then the noise term would still face detached activations and the update would still have no optimizer. Nothing could be executed on this machine (the file policy is read-only and its python has no torch), so the shell and its test were checked by reading them against the runner, the adapters and the harness, plus the static import check of run_port.py; that check reports no problems on either file."
+}

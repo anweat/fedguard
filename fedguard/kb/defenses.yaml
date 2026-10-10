@@ -1,0 +1,202 @@
+# Defense techniques: the technical problem a defense solves, not a paper. Papers appear under
+# implementations.yaml as sources. `circumvention` lists known ways around the technique as a whole;
+# basis `literature` = widely reported in the attack literature we surveyed, `inferred` = follows from
+# the mechanism and has not been checked here.
+D-0001:
+  name: same_round_geometric_outlier_screening
+  zh: 同轮更新的几何离群筛选
+  tactics: [detect, isolate]
+  problem: Among the updates of one round, find those that lie apart from the rest and keep them out of the aggregate.
+  reads: [uploads]
+  acts: [select_and_weight]
+  trust: [server, client_majority]
+  resources: []
+  circumvention:
+    - {how: keep the malicious update inside the spread of benign ones (norm- or distance-constrained optimization), basis: literature}
+    - {how: non-IID benign clients are themselves spread out and get excluded, basis: literature}
+    - {how: colluding clients form the majority cluster, basis: literature}
+D-0002:
+  name: coordinate_wise_robust_aggregation
+  zh: 逐坐标的稳健聚合
+  tactics: [constrain]
+  problem: Replace the mean by a per-coordinate statistic that a bounded fraction of clients cannot move far.
+  reads: [uploads, aggregate]
+  acts: [replace_global]
+  trust: [server, client_majority]
+  resources: []
+  circumvention:
+    - {how: small consistent shifts on many coordinates stay inside the benign range, basis: literature}
+    - {how: on LoRA the statistic acts on A and B separately which is not the statistic of the product, basis: inferred}
+D-0003:
+  name: cross_round_behavior_consistency
+  zh: 跨轮行为一致性
+  tactics: [detect, isolate]
+  problem: Use a client's history of updates (similarity to others, predictability, drift) to tell sustained manipulation from honest variation.
+  reads: [uploads, aggregate, channel]
+  acts: [select_and_weight]
+  trust: [server]
+  resources: []
+  circumvention:
+    - {how: attack in few rounds or intermittently so that no history accumulates, basis: literature}
+    - {how: partial participation leaves histories too short to judge, basis: inferred}
+    - {how: sybils add noise to look dissimilar to each other, basis: literature}
+D-0004:
+  name: trusted_reference_update
+  zh: 以可信参照更新定信任
+  tactics: [isolate, constrain]
+  problem: Score each update against an update the server computed itself on data it trusts.
+  reads: [uploads]
+  acts: [select_and_weight, transform_update]
+  trust: [server, reference_data]
+  resources: [server_update]
+  circumvention:
+    - {how: align the malicious update's direction with the reference while carrying the payload in the remaining magnitude, basis: literature}
+    - {how: a reference set that does not match the clients' distribution rejects honest non-IID clients, basis: literature}
+D-0005:
+  name: update_norm_bound_and_noise
+  zh: 更新范数约束与加噪
+  tactics: [constrain]
+  problem: Bound how much any single update or the aggregate can move the model, and blur what remains with noise.
+  reads: [uploads, aggregate]
+  acts: [transform_update, replace_global]
+  trust: [server]
+  resources: []
+  circumvention:
+    - {how: payloads that fit under the bound (durable or slow backdoors over many rounds), basis: literature}
+    - {how: bounds chosen for full-model weights do not transfer to LoRA factors, basis: inferred}
+D-0006:
+  name: adapter_weight_probe_classification
+  zh: 适配器权重上的探针分类
+  tactics: [detect, isolate]
+  problem: A classifier fitted on LoRA weights of known benign and malicious training separates new uploads or training steps.
+  reads: [uploads, channel, trace, received]
+  acts: [select_and_weight]
+  trust: [server, reference_data]
+  resources: [lora_probe]
+  circumvention:
+    - {how: a different LoRA initialization or attack than the probe was fitted on, basis: inferred}
+    - {how: step-level counts are self-reported and can be falsified, basis: inferred}
+D-0007:
+  name: sample_representation_outliers
+  zh: 样本表示离群
+  tactics: [detect, sanitize]
+  problem: Poisoned samples share a direction or a cluster in the model's hidden representation; remove the samples that carry it.
+  reads: [samples]
+  acts: [mask_samples]
+  trust: [self_client]
+  resources: []
+  circumvention:
+    - {how: triggers designed to leave no separable representation (clean-label, semantic or style triggers), basis: literature}
+    - {how: instruction data has no class labels to group by, so the per-class statistics the methods rely on are missing, basis: inferred}
+D-0008:
+  name: per_sample_gradient_outliers
+  zh: 逐样本梯度离群
+  tactics: [detect, sanitize]
+  problem: Poisoned samples pull the model in a direction clean samples do not; find them in per-sample gradients, optionally against a cross-client reference.
+  reads: [samples, channel]
+  acts: [mask_samples]
+  trust: [self_client]
+  resources: []
+  circumvention:
+    - {how: at round 0 the LoRA B matrices are zero, which removes part of the gradient signal, basis: inferred}
+    - {how: a poisoned majority within one client flips which cluster is taken as clean, basis: inferred}
+D-0009:
+  name: surface_text_sanitization
+  zh: 文本表层净化
+  tactics: [sanitize]
+  problem: Remove tokens whose presence a language model finds out of place, on the idea that inserted triggers are such tokens.
+  reads: [samples]
+  acts: [edit_samples]
+  trust: [self_client]
+  resources: []
+  circumvention:
+    - {how: fluent triggers (sentences, syntax, style) do not raise perplexity, basis: literature}
+D-0010:
+  name: safety_sample_augmentation
+  zh: 安全样本增补
+  tactics: [constrain]
+  problem: Add refusals to harmful requests to the training data so that fine-tuning keeps or re-learns them.
+  reads: []
+  acts: [edit_samples]
+  trust: [self_client, reference_data]
+  resources: [safety_samples]
+  circumvention:
+    - {how: a client that controls its own training simply does not run it, basis: inferred}
+    - {how: harmful data far outnumbering the added samples, basis: literature}
+D-0011:
+  name: local_step_constraint
+  zh: 本地优化步约束
+  tactics: [constrain]
+  problem: Change each local optimizer step (proximal pull, clipping, noise, alternating factors, steps on trusted data) to limit what local training can do to the adapter.
+  reads: [gradients, step_loss, trace]
+  acts: [transform_gradients, transform_loss]
+  trust: [self_client]
+  resources: [alignment_batches]
+  circumvention:
+    - {how: a client that controls its own training does not run it, basis: inferred}
+D-0012:
+  name: received_model_inspection
+  zh: 收到模型的结构检查
+  tactics: [detect, sanitize]
+  problem: Before training, check the adapter a client received for planted structure and reset it.
+  reads: [received]
+  acts: [transform_received]
+  trust: [self_client]
+  resources: []
+  circumvention:
+    - {how: planted structure that does not show as low variance or high row correlation, basis: inferred}
+D-0013:
+  name: pre_upload_update_projection
+  zh: 上传前的更新投影
+  tactics: [sanitize]
+  problem: Before upload, remove from the local update the components that carry more than the task needs.
+  reads: [local_update]
+  acts: [transform_update]
+  trust: [self_client, reference_data]
+  resources: [aux_samples]
+  circumvention:
+    - {how: leakage carried inside the subspace the auxiliary samples span, basis: inferred}
+D-0014:
+  name: post_aggregation_subspace_repair
+  zh: 聚合后的子空间修复
+  tactics: [repair]
+  problem: After aggregation, project adapter modules that left a known-good subspace back onto it.
+  reads: [aggregate]
+  acts: [replace_global]
+  trust: [server, reference_data]
+  resources: [alignment]
+  circumvention:
+    - {how: harmful changes that stay inside the alignment subspace, basis: inferred}
+D-0015:
+  name: measurement_without_intervention
+  zh: 只观测不干预的度量
+  tactics: [observe]
+  problem: Record what each update, report and local data summary looks like, round by round, so that other plugins and people can judge; changes nothing.
+  reads: [uploads, history, channel, samples]
+  acts: []
+  trust: [server]
+  resources: []
+  circumvention:
+    - {how: not a defense by itself; an adversary only has to stay within whatever a later judgment tolerates, basis: inferred}
+D-0016:
+  name: self_report_plausibility_gate
+  zh: 自报值合理性门控
+  tactics: [isolate]
+  problem: Refuse or cap what clients claim about themselves (sample counts, losses) before it is used as an aggregation weight.
+  reads: [channel]
+  acts: [select_and_weight]
+  trust: [server]
+  resources: []
+  circumvention:
+    - {how: claims inside the allowed range are still unverified, basis: inferred}
+D-0017:
+  name: rollback_on_global_jump
+  zh: 全局模型突变时回滚
+  tactics: [repair]
+  problem: When the aggregate moves much farther than in earlier rounds, keep the previous global model instead.
+  reads: [aggregate]
+  acts: [replace_global]
+  trust: [server]
+  resources: []
+  circumvention:
+    - {how: changes spread over many rounds never look like a jump, basis: inferred}

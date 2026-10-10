@@ -1,0 +1,18 @@
+# built locally, not redistributed (see integrations/derive_fedllm_attack.sh)
+experiments/fedllm_attack/run_guarded.py
+integrations/fedllm_attack/main_sft_guard.py
+# upstream frameworks, models, runs
+external/*
+!external/UPSTREAM.md
+runs/
+records/
+*.safetensors
+*.bin
+*.pt
+__pycache__/
+*.pyc
+.venv/
+envs/*/.venv/
+.pytest_cache/
+*.egg-info/
+.DS_Store

@@ -1,0 +1,174 @@
+{
+ "key": "ax2608.06795",
+ "verdict": "partial",
+ "plugins": [
+  {
+   "name": "lorascan",
+   "class": "LoRAScan",
+   "side": "server",
+   "stages": [
+    "server_receive"
+   ],
+   "needs": [
+    "uploads",
+    "model_handle"
+   ],
+   "resources": [
+    "clean_prompts",
+    "screen_prompts"
+   ],
+   "acts": []
+  }
+ ],
+ "steps_total": 7,
+ "steps_ported": 6,
+ "steps_outside": 0,
+ "ops_used": [
+  "fedguard.ops.states.flatten",
+  "fedguard.ops.robust.coordinate_median"
+ ],
+ "new_helpers": [
+  {
+   "name": "insertion_sites",
+   "lines": 9,
+   "generic": true,
+   "what": "module prefixes of a LoRA state dict that carry both lora_A and lora_B; duplicates fedguard.views.uploads.lora_modules, which a plugin file cannot import"
+  },
+  {
+   "name": "lora_a_module_map",
+   "lines": 13,
+   "generic": true,
+   "what": "maps each insertion site to the submodule names ModelHandle.activations(select=...) can match (<site>.lora_A and <site>.lora_A.default)"
+  },
+  {
+   "name": "low_variance_sites",
+   "lines": 7,
+   "generic": true,
+   "what": "the k lowest values of a 1-D sample, with the max(1, round-half-up) floor and a deterministic tie order; ops.sampling.subsample only draws at random"
+  },
+  {
+   "name": "median_mad_threshold",
+   "lines": 12,
+   "generic": true,
+   "what": "median + lambda * MAD upper-tail threshold; ops.robust.robust_z returns 1.4826-scaled z-scores and needs n >= 5, not the raw median/MAD scale"
+  },
+  {
+   "name": "spike_statistic",
+   "lines": 9,
+   "generic": false,
+   "what": "Eq (2) itself (max * log(1 + max/mean) over the per-token magnitudes), not a library gap"
+  }
+ ],
+ "missing_ops": [
+  {
+   "name": "state_key_to_module_name",
+   "what": "no operator maps a LoRA state-dict key (<module>.lora_A.weight) to the submodule names ModelHandle.activations(select=...) matches; parameters/layout name parameters, not modules. Worked around by offering both PEFT spellings and reporting unmatched sites"
+  },
+  {
+   "name": "activations-ready insertion-site scan",
+   "what": "fedguard.views.uploads.lora_modules does the site scan, but fedguard.views.* is outside the plugin import allow-list, so the four lines had to be rewritten in the plugin file"
+  },
+  {
+   "name": "raw median and MAD",
+   "what": "no op returns the median and the raw MAD scale of a 1-D clean sample (ops.robust.robust_z applies the 1.4826 factor and a minimum n); Eq (4) needs bm and bd themselves"
+  }
+ ],
+ "extraction_needs": [
+  {
+   "data": "the adapter under inspection: the list of its LoRA insertion sites and each site's lora_A factors",
+   "where": "server side, when an upload arrives (SERVER_RECEIVE)",
+   "provided": "yes",
+   "via": "ctx.uploads.clients and ctx.uploads.state(cid); the site scan must be rewritten because fedguard.views.uploads is not importable from a plugin"
+  },
+  {
+   "data": "per-token A-side bottleneck activations A_m h_{m,t} (Eq 1) for a prompt set, with the adapter loaded",
+   "where": "server side, one forward pass per prompt (setup and screening)",
+   "provided": "partly",
+   "via": "ModelHandle.activations(prompts, select=<lora_A submodule>, pool=\"none\", what=\"output\") gives one (tokens, r) tensor per prompt; but the host provides no server-side model (the defender passes one as server_guard(probe=...)), and the reference never states how a state-dict key maps to the submodule names activations matches nor that adapter submodules are visible to it"
+  },
+  {
+   "data": "a small trusted, unlabelled clean prompt set (the paper: 40 prompts from Stanford Alpaca) for mu_m, sigma_m, M_k and tau_k",
+   "where": "before or alongside the round, independent of training",
+   "provided": "yes",
+   "via": "resources={\"clean_prompts\": ...} and ctx.resource(\"clean_prompts\"); the library has no clean-data kind, resources is the intended path"
+  },
+  {
+   "data": "the prompt whose S_k(x) is to be judged (a user query before generation in the paper)",
+   "where": "at serving time, before generation: no such stage exists in fedguard",
+   "provided": "no",
+   "via": "no inference stage and no prompt data kind; the port passes a batch in as the resource screen_prompts, which is a bridge, not extraction from the training process"
+  },
+  {
+   "data": "the decision surface for a flagged prompt (refuse it before generation)",
+   "where": "in the serving path, between the score and the generation call",
+   "provided": "no",
+   "via": "ACTION_STAGES has no action for a prompt or a generation; mask_samples/edit_samples act on a client's local training samples at CLIENT_PRE_TRAIN, which is a different intervention"
+  },
+  {
+   "data": "the per-adapter calibration artifacts (mu_m, sigma_m, the monitored set M_k, tau_k) kept from setup to use",
+   "where": "across rounds, one set per adapter",
+   "provided": "yes",
+   "via": "ctx.state (plugin-private, shared across stages and rounds); findings.scores/features/evidence carry them into the record"
+  },
+  {
+   "data": "an identity for the adapter so that the setup runs once per adapter",
+   "where": "server side, per upload and per round",
+   "provided": "partly",
+   "via": "uploads.state(cid) is available to hash, but no library-provided adapter hash reaches a plugin (recorder.store.state_hash is not importable), so the plugin fingerprints (entry count, factor sum) itself"
+  }
+ ],
+ "external_state": [
+  "the trusted clean prompt set (the paper: 40 unlabelled prompts from Stanford Alpaca) - resource clean_prompts",
+  "the batch of prompts to judge - resource screen_prompts; the paper has no such object, it stands in for the missing user-prompt stream",
+  "a server-side ModelHandle over the trusted base model plus PEFT stack (the defender passes it as server_guard(probe=...)); the host provides no model on the server",
+  "the per-adapter calibration state (mu_m, sigma_m, M_k, tau_k) - held in ctx.state here; in the paper it is a deployment artifact reused at serving time",
+  "the serving stack the gate would guard: the request path, tokenizer, adapter hosting, generation and decoding",
+  "the paper's evaluation assets (75 adapters, 5 model families, 5 attacks, and the Alpaca sample) that produce the reported ARR/BPR"
+ ],
+ "missing_runtime": [
+  {
+   "what": "an inference-time stage (a per-prompt hook before generation) or any stage outside the training round",
+   "blocks": "step 7: one forward pass on a user prompt and rejecting it before generation; the whole runtime half of the method"
+  },
+  {
+   "what": "a data kind carrying a user prompt / query stream",
+   "blocks": "steps 1, 2, 5 and 7 on real user prompts; they can only run on a defender-supplied batch in this port"
+  },
+  {
+   "what": "an action that refuses a prompt or stops a generation (the paper's filter_samples is not in ACTION_STAGES; mask_samples/edit_samples filter local training samples at CLIENT_PRE_TRAIN)",
+   "blocks": "step 7's intervention: the plugin can only report which prompts would be rejected"
+  },
+  {
+   "what": "a server-side model in the host (the server has no runnable model by default; the handle is defender-supplied)",
+   "blocks": "steps 1 and 5 for deployments that do not pass a handle; the plugin declares model_handle and its docstring states the requirement"
+  }
+ ],
+ "deviations": [
+  "The paper's setting is a serving platform that gates one downloaded third-party adapter per user prompt; this port mounts the detector at SERVER_RECEIVE and inspects each client upload as the adapter under inspection, the reading the built-in ComplianceProbe gives an upload. That analogy is mine, not the paper's.",
+  "The prompts to judge arrive as a defender-supplied resource (screen_prompts) instead of at generation time, because fedguard has no inference stage; the same per-adapter threshold is applied to that fixed batch.",
+  "The clean and screening prompt sets are the defender's own; the paper's 40 Alpaca prompts are a reported scale, not a constant baked into the plugin.",
+  "Verdicts are report-only: flagged prompts appear by index in scores/features/evidence and nothing is blocked (see missing_runtime).",
+  "Setup is recomputed whenever the uploaded factors change (fingerprint: entry count + sum of all factor values), so the plugin re-reads the adapter each round; the paper computes the setup once per adapter offline.",
+  "The paper's serving cost (one forward pass per prompt) is preserved only for the screening batch; calibration adds one pass per clean prompt the first time an adapter is seen."
+ ],
+ "open_choices": [
+  "activation magnitude = L2 norm of the raw A-side bottleneck output, with no alpha/r scaling (magnitude=\"l1\" switches to the L1 norm). The paper only writes activation magnitude.",
+  "sigma_m = sample standard deviation (ddof=1); a site with a single clean prompt gets 0.",
+  "bd_k is the raw MAD (no 1.4826 factor), which is what makes lambda = 4.45 equal to the three Gaussian-consistent MAD units the paper mentions; the median is the 0.5 quantile (ops.robust.coordinate_median), i.e. the mean of the two middle values for an even count.",
+  "|M_k| = max(1, round-half-up(k * |M|)) and sigma ties are broken by site order in sorted state-dict order; the paper gives neither rule.",
+  "A selected site with sigma <= 1e-12 is dropped from the average instead of contributing an undefined z-score; n_selected and n_monitored report the difference, and with no monitored site nothing is screened.",
+  "Module-name mapping: <site>.lora_A and <site>.lora_A.default are both offered; sites the handle does not report are listed as unmatched instead of failing.",
+  "Adapter identity for the once-per-adapter setup = (number of state entries, sum of all factor values); two adapters with the same sum would share a setup.",
+  "The calibration forward pass runs with the uploaded adapter loaded by the handle (the paper's wording about reading the LoRA down-projection implies it but does not state it); an adapter that is not active reports nothing and is recorded as unmatched.",
+  "A client-side mount at CLIENT_PRE_TRAIN (received_model + data + the handle around the training model) is also conceivable; it was not taken because the missing piece is the same decision surface and the server-side mount matches the built-in ComplianceProbe."
+ ],
+ "needs_from_authors": [
+  "the magnitude definition of a_{m,t}(x): which norm, and whether the alpha/r scaling of Eq (1) is included",
+  "which submodules their activation capture hooks (PEFT naming and adapter-active state) and whether the setup forward runs on base+adapter or base only",
+  "the sampling of the 40 Alpaca prompts (subset, seed, dedup, length distribution) and whether they are redrawn per adapter",
+  "the rounding rule for |M_k|, the sigma estimator (ddof), and whether bd_k is multiplied by 1.4826",
+  "how a single prompt's statistics are isolated under continuous batching and how over-long prompts are truncated"
+ ],
+ "confidence": "medium",
+ "confidence_reason": "The six ported steps run green against the real GuardRunner/OpenFedLLMGuard and the harness (9 tests, synthetic activations, no model): the low-variance site selection, the trigger flag, the decoy on an unmonitored site, the reused per-adapter setup, the zero-variance degenerate case and both PEFT module spellings are all asserted. Two things were not executed: a real PEFT model (the activation route and the module-name mapping are inferred from fedguard/adapters/hf_model.py and PEFT naming, kept configurable and non-fatal), and the serving-time half, which this library cannot host. The verdict boundary is a judgement call: the detector's computation and calibration are ported and tested, the reject-before-generation gate is not."
+}

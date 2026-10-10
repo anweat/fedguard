@@ -1,0 +1,73 @@
+{
+ "key": "gao2019strip",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 34813,
+    "outputTokens": 17850,
+    "cacheReadTokens": 42240,
+    "cacheWriteTokens": 0,
+    "totalTokens": 94903
+   },
+   "seconds": 82.0,
+   "errors": 0
+  },
+  {
+   "round": 2,
+   "usage": {
+    "inputTokens": 38325,
+    "outputTokens": 12587,
+    "cacheReadTokens": 47360,
+    "cacheWriteTokens": 0,
+    "totalTokens": 98272
+   },
+   "seconds": 54.4,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 84980,
+ "report": {
+  "_unparsed": "Expecting ',' delimiter: line 112 column 1 (char 9430)"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "Strip",
+    "name": "strip",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "clean_reference",
+     "detection_boundary"
+    ],
+    "acts": [],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 48
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "none",
+  "errors": [],
+  "plugin_lines": 74
+ },
+ "status": "failed",
+ "tokens": 103575,
+ "cache_read_tokens": 89600,
+ "seconds": 136.4
+}

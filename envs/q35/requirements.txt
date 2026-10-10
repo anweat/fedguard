@@ -1,0 +1,18 @@
+# 第二套环境：Qwen3.5（qwen3_5 架构）需要 transformers 5.x；其余与 envs/fl311 相同。
+# trl 仍为 0.8.1（上游 FedLLM-Attack 用它的 SFTTrainer 与 DataCollatorForCompletionOnlyLM）。
+torch==2.10.0
+transformers==5.19.0
+trl==0.8.1
+peft==0.21.2
+accelerate
+datasets
+flwr[simulation]==1.39.0
+flwr-datasets>=0.6.0
+numpy
+pandas
+tqdm
+sentencepiece==0.2.1
+safetensors
+pytest
+matplotlib
+pillow

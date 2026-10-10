@@ -1,0 +1,197 @@
+{
+ "key": "ax2409.14119",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 72909,
+    "outputTokens": 77286,
+    "cacheReadTokens": 2778240,
+    "cacheWriteTokens": 0,
+    "totalTokens": 2928435
+   },
+   "seconds": 363.5,
+   "errors": 1
+  },
+  {
+   "round": 2,
+   "usage": {
+    "inputTokens": 58904,
+    "outputTokens": 69678,
+    "cacheReadTokens": 2308608,
+    "cacheWriteTokens": 0,
+    "totalTokens": 2437190
+   },
+   "seconds": 287.7,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 84882,
+ "report": {
+  "key": "ax2409.14119",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "obliviate_lamp",
+    "class": "ObliviateLamp",
+    "side": "client",
+    "stages": [
+     "client_loss"
+    ],
+    "needs": [
+     "loss"
+    ],
+    "resources": [],
+    "acts": [
+     "transform_loss"
+    ]
+   }
+  ],
+  "steps_total": 7,
+  "steps_ported": 2,
+  "steps_outside": 4,
+  "ops_used": [
+   "fedguard.ops.states.module_info"
+  ],
+  "new_helpers": [
+   {
+    "name": "amplification_penalty",
+    "lines": 3,
+    "generic": true,
+    "what": "Eq. (1) as a differentiable scalar: minus the sum of the L2 (Frobenius) norms of a mapping of PEFT tensors. fedguard.ops.states.norm computes the same number but returns a Python float, so it cannot be part of a loss."
+   },
+   {
+    "name": "lora_factor_params",
+    "lines": 1,
+    "generic": true,
+    "what": "Selects the entries of a {name: Parameter} mapping whose name carries a lora_A/lora_B factor, via fedguard.ops.states.module_info; the paper's amplified set restricted to the architecture this library carries."
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "differentiable norm-sum over a parameter mapping",
+    "what": "no operator returns sum_p ||W_p|| as a tensor that keeps a graph; states.norm is float-only. The 3-line module-level helper amplification_penalty replaces it."
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "Ltask, the task loss of the current local training step, still attached to the graph",
+    "where": "client, inside a training step, after the forward pass and before backward",
+    "provided": "yes",
+    "via": "Stage.CLIENT_LOSS with the loss kind declared -> LossView.loss; only reachable when the host replaces the trainer compute_loss through fedguard.adapters.hf_trainer_ext.extend_trainer"
+   },
+   {
+    "data": "the trainable PEFT tensors W_p themselves (values, not copies), for Lamp",
+    "where": "client, the same point in the step",
+    "provided": "yes",
+    "via": "LossView.parameters() -> {name: torch.nn.Parameter} of the requires_grad parameters (the LoRA factors); fedguard.ops.states.module_info classifies each name as factor A or B"
+   },
+   {
+    "data": "the attention scores a_h of every layer and head (Eq. 2; for sentence classification the attention of the input tokens on the [CLS] output)",
+    "where": "client, inside the training step, or from a model pass",
+    "provided": "no",
+    "via": "no data kind or view carries attention scores. LossView exposes batch, outputs, loss and parameters only, and hf_trainer_ext.py states that attention scores need output_attentions set by the app. ModelHandle offers submodule inputs/outputs, hidden states, tokens, losses, per-sample gradients and generation, but not attention weights, and it exposes parameter names and shapes, not the frozen base weights, so softmax(QK^T) cannot be recomputed inside a plugin either."
+   },
+   {
+    "data": "the exact tensor list that counts as all PEFT layers per architecture (adapter up/down projections, LoRA factors, prefix reparameterization matrices)",
+    "where": "client, at setup and per step",
+    "provided": "partly",
+    "via": "the trainable parameters are visible, but this library carries LoRA state dicts only, so the adapter and prefix variants of Table 7 cannot be built; the port amplifies lora_A / lora_B tensors and leaves other trainable tensors (e.g. modules_to_save) alone"
+   },
+   {
+    "data": "lambda_amp and lambda_reg selected on the defender clean labelled validation set under the 2% CACC rule",
+    "where": "outside the round: offline model selection before or around the federated run",
+    "provided": "no",
+    "via": "no library interface; it needs a labelled clean validation set and retraining per candidate. The plugin takes lambda_amp as a constructor argument (defaulting to the smallest Table 7 candidate so the class can be mounted bare) and has no lambda_reg"
+   },
+   {
+    "data": "the possibly backdoored base PLM with randomly initialized PEFT layers attached (step 1)",
+    "where": "client (and server, for the broadcast global model), before any training step",
+    "provided": "no",
+    "via": "not extractable and not a plugin concern: it is model construction done by the host or the defender; the library sees LoRA state dicts and the server has no model by default"
+   }
+  ],
+  "external_state": [
+   "Clean downstream training set (paper: about 6,000 samples per task) and the labelled clean validation set used to pick lambda_amp / lambda_reg; both stay with the defender",
+   "The possibly backdoored pretrained PLM checkpoint plus the PEFT configuration (LoRA r/alpha; the paper also uses adapter and prefix-tuning) - model construction, outside the library",
+   "The selected coefficient lambda_amp, passed into the constructor; the plugin itself carries no state across steps or rounds"
+  ],
+  "missing_runtime": [
+   {
+    "what": "attention scores are not a data kind and no view or handle method returns them (LossView: batch/outputs/loss/parameters; ModelHandle: tokens/losses/hidden/activations of submodules/per_sample_gradients/logprob/generate)",
+    "blocks": "step 3 (attention_score_l2norm_regularize) and the lambda_reg * Lreg part of step 4, i.e. the whole Lreg half of the defense"
+   },
+   {
+    "what": "no view or handle exposes the frozen base weights or the effective (base + LoRA) weight matrices; the handle gives parameter names and shapes only",
+    "blocks": "recomputing attention scores from Q/K inside the plugin as a workaround for Eq. 2"
+   },
+   {
+    "what": "the CLIENT_LOSS point exists only through the opt-in trainer extension layer (extend_trainer replaces Trainer.compute_loss); a plain Trainer callback never reaches it",
+    "blocks": "the loss-term port in a deployment that cannot replace the trainer compute_loss; the paper defense is a loss term, so there is no other stage where it can enter unchanged (the gradient-space rewrite at CLIENT_PRE_STEP would not be equivalent under Adam-family optimizers)"
+   }
+  ],
+  "deviations": [
+   "Centralized method mounted on a federated client: Eq. (1)-(3) are per-step objectives of one training process; here they run in the local steps of a client. The term itself is unchanged by the federation, and the paper has no aggregation or communication, so nothing is proposed server-side.",
+   "LoRA-only scope: the paper amplifies adapter up/down projections, LoRA decomposition matrices and prefix reparameterization matrices; this library carries LoRA factors, so only lora_A/lora_B tensors are amplified.",
+   "Eq. (3) is realized as a transform_loss proposal on the scalar the host back-propagates rather than by editing the training loop; the gradient-space form at CLIENT_PRE_STEP is not implemented and is not equivalent under adaptive optimizers.",
+   "lambda_amp is supplied from outside and defaults to 1e-3, the smallest Table 7 candidate, so that the class mounts with no arguments; the offline selection of step 6 is not reproduced and lambda_reg does not exist in the port.",
+   "No federated behavior of the method is claimed: the paper has no FL experiments, so the interaction of a client-local amplification term with FedAvg over rounds is untested here."
+  ],
+  "open_choices": [
+   "||W_p||_2 is read as the Frobenius norm (Tensor.norm()); the paper only writes L2-norm",
+   "the amplified set is chosen by name (states.module_info factor A/B); other trainable tensors are excluded, matching the list of amplified matrices in the paper",
+   "lambda_amp is a constructor argument with default 1e-3, the smallest of the paper's four Table 7 candidates; it is a mounting default for a value the paper never publishes, not a reproduction of its selection",
+   "no eps, clamp or normalization: a zero-norm factor takes the norm subgradient at zero (0 in PyTorch; verified by the zero-factor test)",
+   "the term is rebuilt from the live parameters every step instead of being accumulated in ctx.state, matching a paper with no explicit cross-step state",
+   "when no trainable LoRA factor is present the plugin proposes nothing and leaves the host loss alone"
+  ],
+  "needs_from_authors": [
+   "the final lambda_amp / lambda_reg values per architecture and dataset (only candidate sets and the 2% rule are published)",
+   "whether ||W_p||_2 is the Frobenius or the spectral norm, and whether the two coefficients are searched jointly or independently (and whether each candidate needs a retrain)",
+   "the exact shape and aggregation of a_h in Eq. 2 (softmax weights or logits, batch/token averaging, whether [CLS]/[SEP] are included)",
+   "the exact tensor list of all PEFT layers for adapter and prefix-tuning, and the author code that extracts the [CLS] attention; which lambda_reg candidate range is authoritative (Table 7 vs Figure 9)"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "The Lamp half now mounts exactly as the contract check builds it (cls() with no arguments, verified against verify.py's own sequence) and its mechanism is checked by five tests under the real pytest: value added to the loss, gradient direction, non-LoRA trainables untouched, zero-factor stability, and a mount test for the default coefficient. The Lreg gap is not guesswork either: the trainer-extension docstring names attention scores as out of reach and no view or handle method returns them. What keeps this at medium is the federation layer itself - the paper has no FL setting, so the mapping onto a client stage, the default lambda_amp and the absence of any server-side action are my analysis, and nothing was run against a real host, model or dataset."
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "ObliviateLamp",
+    "name": "obliviate_lamp",
+    "side": "client",
+    "stages": [
+     "client_loss"
+    ],
+    "needs": [
+     "loss"
+    ],
+    "resources": [],
+    "acts": [
+     "transform_loss"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 92
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 128,
+  "test_lines": 119,
+  "test_summary": "5 passed in 1.05s"
+ },
+ "status": "passed",
+ "tokens": 278777,
+ "cache_read_tokens": 5086848,
+ "seconds": 651.2
+}

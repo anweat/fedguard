@@ -1,0 +1,11 @@
+== runs/plugins_openfedllm_05b/rec_client_all/alpaca-gpt4_400_fedavg_c5s5_i4_b4a1_l128_r16a32_20261010214437
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client activation_clustering       client_pre_train            10      0       0      10     0.41  {"groups": {"": {"smaller_cluster_share": 0.1875, "silhouette": 0.12064411390151984, "flagged": true}}, "maske
+client gradient_spectral_entropy   client_pre_train            10      0     160      10     2.89  {"threshold": 0.7, "bimodal": false, "scored": 16, "masked": 0}
+client la_lora                     client_pre_step             40      0       0      40     0.00  {"step": 4, "active": "A", "bound": 0.012008431367576122, "matrices": 48}
+client lisa_proximal               client_pre_step             40      0       0      40     0.00  {"drift": 0.14769727994648077}
+client local_centroid              client_pre_train            10      0       0       0     0.00  {"consensus_received": false}
+client onion                       client_pre_train            10      0     160       0     3.13  {"examined_words": 80, "rewritten": 0}
+client received_adapter_scan       client_pre_train            10      0     480       0     0.00  {"flagged_rows": 0}
+client spectral_signatures         client_pre_train            10      0     160      10     0.57  {"scored": 16, "masked": 2}
+changes: spectral_signatures: mask_samples=10, activation_clustering: mask_samples=10, gradient_spectral_entropy: mask_samples=10, lisa_proximal: transform_gradients=40, la_lora: transform_gradients=40

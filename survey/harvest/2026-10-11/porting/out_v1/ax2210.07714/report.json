@@ -1,0 +1,147 @@
+{
+ "key": "ax2210.07714",
+ "verdict": "partial",
+ "plugins": [
+  {
+   "name": "crowdguard",
+   "class": "CrowdGuard",
+   "side": "server",
+   "stages": [
+    "server_aggregate"
+   ],
+   "needs": [
+    "model_handle",
+    "uploads"
+   ],
+   "resources": [
+    "validation_set"
+   ],
+   "acts": [
+    "select_and_weight"
+   ]
+  }
+ ],
+ "steps_total": 16,
+ "steps_ported": 13,
+ "steps_outside": 2,
+ "ops_used": [
+  "fedguard.ops.cluster.agglomerative",
+  "fedguard.ops.cluster.dbscan",
+  "fedguard.ops.cluster.distances",
+  "fedguard.ops.transform.pca"
+ ],
+ "new_helpers": [
+  {
+   "name": "_rowwise_distance / _distances_to",
+   "lines": 22,
+   "generic": true,
+   "what": "per-sample distance between paired rows of two (n, d) matrices, cosine and Euclidean; geometry.distances is within one set and cosine_to / distance_to compare with one reference"
+  },
+  {
+   "name": "_ratio / _signed_square / _hlbim / _pc1",
+   "lines": 26,
+   "generic": false,
+   "what": "Alg. 1 lines 21-25: relative distance to the validator own model, sign-keeping square, labelwise mean and concatenation into HLBIM, first principal component"
+  },
+  {
+   "name": "_significant / _t_test / _f_test / _ks_test / _boxplot_outlier / _sigma_outlier",
+   "lines": 50,
+   "generic": true,
+   "what": "Alg. 4: the five significance tests at alpha 0.01 and their OR"
+  },
+  {
+   "name": "_betacf / _betai / _t_p_value / _f_p_value",
+   "lines": 47,
+   "generic": true,
+   "what": "regularized incomplete beta and the two p-values; written by hand because torch.distributions.StudentT.cdf and FisherSnedecor.cdf raise NotImplementedError and torch has no betainc"
+  },
+  {
+   "name": "_prune",
+   "lines": 22,
+   "generic": false,
+   "what": "Alg. 2 lines 8-28: iterative pruning of the minority cluster with the safe abort above floor((n - 1) / 2)"
+  },
+  {
+   "name": "_aggregate_votes",
+   "lines": 20,
+   "generic": false,
+   "what": "Alg. 3: agglomerative majority cluster of the vote rows, DBSCAN inside it, first row of the largest group"
+  },
+  {
+   "name": "_validation_set / _dlo",
+   "lines": 16,
+   "generic": false,
+   "what": "resource parsing (samples plus labels) and one activations pass per state through ModelHandle.lora"
+  }
+ ],
+ "missing_ops": [
+  {
+   "name": "geometry.rowwise_distance",
+   "what": "a distance between paired rows of two (n, d) matrices; the library only has distances within one matrix and cosine_to / distance_to against one reference vector"
+  },
+  {
+   "name": "stats.significance_tests and stats.p_values",
+   "what": "no operator for a two-sample t test, an F test, a two-sample Kolmogorov-Smirnov test, a boxplot outlier rule or a 3-sigma rule, and no p-value helper: an incomplete beta had to be implemented by hand, so any method that ports Alg. 4 pays the same ~95 lines"
+  }
+ ],
+ "missing_runtime": [
+  {
+   "what": "no client-side stage after SERVER_RECEIVE and no way to move this round uploads to a client: every client stage runs before the uploads exist, the only two-way exchange (CLIENT_ANNOUNCE / SERVER_EXCHANGE) happens before local training, a server outbox is carried with the next round broadcast, and the channel cannot hold n LoRA states anyway (messages <= 64 KiB, attachments are one flat tensor dict <= 64 MiB)",
+   "blocks": "S3, and with it the paper placement of the validation (S4-S13) inside the client enclaves; votes produced in the next round would be about last round models, so the round-independent filtering before aggregation cannot be scheduled"
+  },
+  {
+   "what": "data is a client-side kind and sample labels are not a kind at all: DataView exposes hashes, source tags and lengths and its raw samples are opaque, so the server can read no client validation set",
+   "blocks": "S4 and S7 on the server unless the deployment hands in a labelled set as a resource, which this port does"
+  },
+  {
+   "what": "the server-side model_handle is optional and the shipped server adapter offers ProbeView.score only (OpenFedLLMGuard(probe=...), HFProbe); the lora() and activations() of ModelHandle are not part of it, and a default server has no model",
+   "blocks": "S4 in every deployment that does not supply a full server-side ModelHandle; without one the plugin records a LookupError"
+  },
+  {
+   "what": "no attestation, enclave or secure-memory notion exists in the library",
+   "blocks": "S1 (outside the plugin anyway); the paper threat model (the server sees neither client data nor honest votes) is not enforceable here"
+  }
+ ],
+ "deviations": [
+  "Validation runs on the server over one defender-held labelled set, not inside each client TEE over that client own data: the library cannot deliver the round uploads to the clients nor client data to the server, so the n client validators are replayed on the server (each upload is the reference model in turn) and only the data source and the place of computation change.",
+  "A model is a LoRA state loaded on the base model of the handle, not a full DNN upload; the DLO stage is one ModelHandle.activations call per state.",
+  "Deep layer outputs are the pooled submodule outputs the handle exposes (pool mean, every submodule selected), not per-token layer outputs of a fixed image architecture; which layers enter HLBIM depends on the deployment handle.",
+  "The forward cost is n + 1 passes over one shared set per round instead of n * (n + 1) passes spread over n clients with different local sets: the total compute is about n times smaller and centralized.",
+  "The votes are computed by the plugin instead of arriving from untrusted clients, so the robustness of the Alg. 3 stacked clustering against lying validators is not exercised.",
+  "The filter acts on the round uploads through Decision.excluded and the survivors get weight 1 (equal-weight FedAvg, delta 1); the host performs the averaging and the broadcast, so only the weighting of S16 is the plugin part.",
+  "S1 (TEE setup and remote attestation) and S2 (encrypted uplink) are not implemented: they are the protocol and the host, not a plugin.",
+  "Sample labels come with the validation resource rather than from the local dataset of each client.",
+  "Nothing here reproduces the paper numbers (CIFAR-10, ResNet-18, 20 clients, 2560 samples, PDR 0.1, PMR 0.45): the tests are mechanism only."
+ ],
+ "open_choices": [
+  "The first principal component comes from fedguard.ops.transform.pca (centered SVD, library sign convention).",
+  "Alg. 4 line 11 splits upper and lower by the sign of the principal component value; the alternative reading (sign of value - median) differs only by the same shift of both groups.",
+  "The F test of Alg. 4 line 19 is implemented instead of the Levene test named in footnote 10, and it is two-sided.",
+  "The boxplot rule is 1.5 IQR; the 3-sigma interval is two-sided with the population standard deviation.",
+  "A test with degenerate input (fewer than two points on a side, zero variance) is skipped rather than fired.",
+  "The labelwise mean is the arithmetic mean; labels are ordered by repr; a label with no sample cannot occur because the labels come with the resource.",
+  "HLBIM features are label-major then layer name; only labels and layers present for every model are used.",
+  "A validator skips its own model and its own vote stays 1 (footnote 15), so the HLBIM matrix has n - 1 rows.",
+  "The cosine and the Euclidean analyses are independent and a model flagged by either is voted malicious (footnote 7 does not say how the two write the one vote array).",
+  "Agglomerative clustering uses average linkage on Euclidean distances of the values, in the pruning loop and on the vote matrix; DBSCAN uses Euclidean distance (with eps 0.5 this groups equal vote vectors).",
+  "On a cluster-size tie: the pruning loop takes the cluster with the larger mean absolute deviation from the median, the vote layer takes the one with more benign votes.",
+  "The model dropped by the safe abort is the flagged one with the smallest principal component value.",
+  "Where the reference distance is zero the ratio is 1 if the candidate distance is zero too and 1 + candidate otherwise.",
+  "The whole resource set is used, with no subsampling (Sect. VI-C leaves the subset size open).",
+  "The plugin needs at least 3 uploads and at least 3 models to judge per validator, and otherwise reports a skip."
+ ],
+ "needs_from_authors": [
+  "How Alg. 1 / Alg. 2 handle the row of the validator own model: footnote 15 says the client does not evaluate its own model while Alg. 1 line 21 needs its distances as the denominator; is the row absent, constant, or evaluated?",
+  "The PCA behind Alg. 2 line 14: centering/standardization, solver, and the sign convention of the first component.",
+  "Alg. 4 line 11: are upper and lower split on the raw PC value or on value - median?",
+  "Alg. 4: F-test or Levene (line 19 vs footnote 10), the boxplot multiplier, the sidedness of the 3-sigma interval, and whether the p-values are one- or two-sided.",
+  "The shape of HLBIM after the label concatenation (Alg. 1 line 25 and footnote 8 vs the models x layers sentence in the text) and the concatenation order.",
+  "What a DLO is in their code: flattened or pooled, normalized, and whether the final classification layer is included.",
+  "How the cosine and the Euclidean analyses write the one vote array (footnote 7 vs Alg. 2 line 6): union, intersection, or one of them only?",
+  "The distance metric and linkage of the agglomerative clustering, and the metric of DBSCAN on binary vote vectors.",
+  "The definition of MIN(malicious_models) in the safe abort of Alg. 2 line 24 (smallest PC value, or closest to the median?).",
+  "Whether Eq. 1 divides by the number of remaining models after the rejected ones are removed."
+ ],
+ "confidence": "medium",
+ "confidence_reason": "The detection mathematics, the iterative pruning, the stacked-clustering vote aggregation and the filtering run end to end and the three mechanism tests pass against the harness with a stub handle; but the paper placement (client TEE validation on each client own data) is replaced by a server-side replay over a defender-held labelled set, the DLO semantics depend on the deployment ModelHandle, and about a dozen Alg. 2 / Alg. 4 details are unspecified, so this is not equivalent to the authors implementation."
+}

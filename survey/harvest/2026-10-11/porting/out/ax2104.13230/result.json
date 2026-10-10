@@ -1,0 +1,225 @@
+{
+ "key": "ax2104.13230",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 102440,
+    "outputTokens": 110394,
+    "cacheReadTokens": 3460096,
+    "cacheWriteTokens": 0,
+    "totalTokens": 3672930
+   },
+   "seconds": 484.4,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 83407,
+ "report": {
+  "key": "ax2104.13230",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "influence_defense",
+    "class": "InfluenceDefense",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "clean_reference"
+    ],
+    "acts": [
+     "mask_samples"
+    ]
+   }
+  ],
+  "steps_total": 10,
+  "steps_ported": 7,
+  "steps_outside": 1,
+  "ops_used": [
+   "fedguard.ops.geometry.gram_matrix",
+   "fedguard.ops.sampling.subsample"
+  ],
+  "new_helpers": [
+   {
+    "name": "influence_norms",
+    "lines": 16,
+    "generic": true,
+    "what": "给定参考逐样本梯度 R 与查询梯度 G，用 Woodbury 恒等式在 n×n 行空间里算 ||A^-1 g||，A = (1/n) R^T R + lam I 永不显式构造（p×p 放不下）。库里没有任何线性求解或二阶算子（ops.probe.fit_logistic 内部有同类行空间求解但不导出），影响函数类方法都能复用，故记为通用件。"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "hessian_or_hvp_of_the_training_loss",
+    "what": "式 (7)/(14) 要训练损失对已训练参数的二阶导，或至少逐样本 HVP。fedguard.ops 没有任何二阶算子：ops.sequential.lbfgs_hvp 是从服务器侧全局模型与聚合更新的差分窗口构造 Hv，客户端逐样本影响用不了；LoRA 参数维数 p 下 p×p 矩阵也放不下。本移植用参考梯度的阻尼经验 Fisher 顶替，并写进 Deviations。"
+   },
+   {
+    "name": "input_gradient_of_the_influence",
+    "what": "式 (12)-(13) 要 d Inf(x)/d x，即参数梯度内积对输入样本的导数。没有任何视图或算子给出对输入的梯度（ModelHandle 的 losses/hidden/activations/per_sample_gradients/logprob/generate 全是参数梯度或纯前向）；CLIENT_LOSS 的 batch 是 token id，对整数索引本身不可导，也没有把 token 变回文本的接口，所以扰动样本无法生成。"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "到达样本 (x_t, y_t)，含标签",
+    "where": "客户端，CLIENT_PRE_TRAIN（论文里逐样本到达时）",
+    "provided": "partly",
+    "via": "DataView.samples()/manifest 给样本与哈希，但没有标签访问器；插件由调用方传入 label_of 可调用对象取标签"
+   },
+   {
+    "data": "样本的特征向量 x（式 (10) 的 slab 判据要它）",
+    "where": "客户端，CLIENT_PRE_TRAIN",
+    "provided": "partly",
+    "via": "DataView 没有特征访问器；唯一能拿到向量的是 ModelHandle.hidden（每样本一次前向），于是 slab 跑在池化隐状态上，而不是论文声明的输入特征"
+   },
+   {
+    "data": "干净预训练集 D_pre（样本+标签）",
+    "where": "客户端，轮次之外（防御方资产）",
+    "provided": "yes",
+    "via": "resources + ctx.resource(\"clean_reference\")"
+   },
+   {
+    "data": "类质心 mu_y、mu_-y 与阈值 s_y（式 (10)）",
+    "where": "客户端，CLIENT_PRE_TRAIN（论文写成训练前一次性准备）",
+    "provided": "yes",
+    "via": "插件在 run 内用 clean_reference 的样本 + ModelHandle.hidden 现算；论文没给 s_y 的值或算法，由插件自选（见 open_choices）"
+   },
+   {
+    "data": "逐样本损失梯度 ∇_θL(x, θ)（式 (11)）",
+    "where": "客户端，CLIENT_PRE_TRAIN",
+    "provided": "yes",
+    "via": "ModelHandle.per_sample_gradients(samples, group=\"lora\")，每样本一次反向；参数是 LoRA 因子，不是论文的 d 维 logistic 权重"
+   },
+   {
+    "data": "参考集上的 Hessian H（式 (7)/(14)）及其逆",
+    "where": "客户端，CLIENT_PRE_TRAIN（论文里预计算一次）",
+    "provided": "no",
+    "via": "库里没有二阶算子，LoRA 参数上 p×p 也不可行；移植改用参考梯度的阻尼经验 Fisher（见 Deviations、missing_ops）"
+   },
+   {
+    "data": "最近 w_inf 个影响值的滑动窗口（算法 1 第 8 行）",
+    "where": "客户端，跨轮保留",
+    "provided": "yes",
+    "via": "ctx.state（插件私有，整个 run 保留，轮末不清空）"
+   },
+   {
+    "data": "影响对样本的梯度 ∇I(x)（式 (13)，做扰动要用）",
+    "where": "客户端，CLIENT_PRE_TRAIN",
+    "provided": "no",
+    "via": "没有输入梯度视图或算子；loss / ModelHandle 只给前向值和参数梯度"
+   },
+   {
+    "data": "承载改写样本的样本编辑动作",
+    "where": "客户端，CLIENT_PRE_TRAIN",
+    "provided": "partly",
+    "via": "edit_samples 存在（add / rewrite by hash），但扰动方向算不出来，插件从不提出它"
+   },
+   {
+    "data": "逐样本到达、到达后立刻更新一次参数的流式循环",
+    "where": "客户端，每个训练步",
+    "provided": "no",
+    "via": "CLIENT_PRE_TRAIN 每轮只跑一次、一次看到整轮样本；CLIENT_LOSS/CLIENT_PRE_STEP 虽然有逐步视图，但那里没有 mask_samples/edit_samples 动作，论文的『过滤/编辑→马上 OGD 一步』对不上"
+   }
+  ],
+  "external_state": [
+   "干净预训练集 D_pre（样本+标签）：本移植作为 resource 传入；slab 的类质心/阈值与式 (7) 的参考梯度都由它算。",
+   "论文的初始模型 θ0：在这里就是客户端收到的全局 LoRA（宿主提供，插件只经 model_handle 使用）。",
+   "类质心、slab 阈值、参考逐样本梯度 / Fisher：论文写成训练前一次性预计算；本移植每轮现算，若要离线预算就要在库外保存这些量。",
+   "影响滑动窗口：方法唯一的跨时刻状态；本移植放在 ctx.state，否则要在库外维护。",
+   "一个能在客户端做逐样本反向的 model_handle（可以就是正在训练的模型）。"
+  ],
+  "missing_runtime": [
+   {
+    "what": "客户端可用的二阶信息：Hessian、HVP，或任何能形成式 (14) 那个矩阵的接口",
+    "blocks": "步骤 3（预计算 Hessian）与步骤 5 里精确的 H^-1；移植只能跑在阻尼经验 Fisher 上，阈值比较的量因此与论文不同"
+   },
+   {
+    "what": "输入空间梯度：对参数梯度内积求 d/dx（double backward），以及把扰动后的特征向量变回宿主可训练样本的通道",
+    "blocks": "步骤 8（影响最小化扰动）与步骤 9（影响下降才接受）——论文自己的动作；插件只能报告触发，不能改样本"
+   },
+   {
+    "what": "训练步之内的样本级动作：mask_samples / edit_samples 只在 CLIENT_PRE_TRAIN 存在",
+    "blocks": "论文『样本到达→过滤/编辑→立刻更新一步』的交错；本移植只能在一轮开始前把整轮样本一次过滤完，被拒样本整轮不参与"
+   }
+  ],
+  "deviations": [
+   "论文是单机在线学习：样本是 d 维特征向量、模型是 logistic 回归；这里是客户端本地数据 + LLM 的 LoRA 微调，影响在 LoRA 参数上取，p 远大于 d。",
+   "论文的 x 在库里没有访问器，slab 改用客户端所收模型上的池化隐状态（每样本一次前向）；隐状态随模型变，论文的 x 固定。",
+   "式 (7)/(14) 的精确 Hessian 用参考逐样本梯度的阻尼经验 Fisher 顶替，在行空间里算（n×n 求解，p×p 永不构造）；阻尼取值是我们的选择。",
+   "H 每轮在当前模型上重算；论文写的是预计算一次，也没说 θ 变了要不要刷新、在哪个集合上估。",
+   "论文逐样本到达、到达即做一步 OGD；这里的单位是一轮，整轮样本在 CLIENT_PRE_TRAIN 按 manifest 顺序处理，训练随后由宿主完成。",
+   "slab 拒绝落成 mask_samples（该样本整轮不进训练集）；论文是那一次到达不更新参数，θ_t = θ_{t-1}。",
+   "插件唯一的干预是 slab 过滤，而 slab 是论文引用 Steinhardt 等的既有防御；论文自己的动作（影响最小化改写）没有被提出，只报告触发。",
+   "没有抽样、没有客户端/服务器往返：论文单机，方法本身不需要通信。"
+  ],
+  "open_choices": [
+   "s_y：论文既没给值也没给算法，取该类干净参考样本上 slab 统计量的最大值。",
+   "w_inf：论文没给值，默认 20。",
+   "冷启动：窗口为空时没有阈值、不触发；论文没有定义前 w_inf 个到达怎么办。",
+   "被 slab 拒绝的样本不进影响窗口（论文只在接受分支算影响，也没明说）。",
+   "H^-1 的阻尼：默认 1e-6 × 参考梯度均方范数（论文完全没提数值稳定化）。",
+   "H 在 D_pre 上估计，而不是流数据（论文式 (7)/(8) 写作 D，没说指哪个集合）。",
+   "标签编码：论文 4.1 节写 y∈{-1,+1}、5 节损失要 y∈{0,1}，自相矛盾；这里标签只用来选质心，直接用防御方给的类标签。",
+   "隐状态特征取最后一层、mean pooling（论文没说表 1 的 50 维特征怎么来的）。",
+   "max_samples = None：不抽样，与论文一致。"
+  ],
+  "needs_from_authors": [
+   "s_y 的取值或算法（论文只引用 Steinhardt 等），以及是否按数据集调。",
+   "w_inf 的数值与冷启动规则（论文只说 grid search 经验确定）。",
+   "η_def、式 (12) 的迭代次数与停止条件（论文都没给）。",
+   "H 是否重算、在哪个集合上估、是否加阻尼或用伪逆。",
+   "扰动后的 x* 是否要投影回 F_slab 或 F = [-1,1]^d × {-1,+1}。",
+   "实际使用的标签编码（4.1 节与 5 节不一致）。",
+   "表 1 中 MNIST / Fashion MNIST 的 50 维特征如何得到（复现实验需要）。"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "接口结论是确定的：库里没有二阶算子、没有输入梯度、逐步位置也没有样本级动作，插件能做什么、卡在哪都已按交付文本在本机跑通（静态检查、契约检查、四个测试全过）。步骤计数：7 移植（步骤 1–7，其中步骤 3/5 用经验 Fisher 顶替精确 Hessian）+ 1 不属于插件（步骤 10 的 OGD 与正则项）+ 2 未移植（步骤 8、9）= 10。不确定的是替代是否保住了方法行为：slab 从固定输入特征挪到会变的隐状态、H 换成经验 Fisher，都会改变阈值比较的量；论文又没给 s_y / w_inf / η_def，只有原作者代码或数据能定。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "InfluenceDefense",
+    "name": "influence_defense",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "clean_reference"
+    ],
+    "acts": [
+     "mask_samples"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 136
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 171,
+  "test_lines": 92,
+  "test_summary": "4 passed in 1.01s"
+ },
+ "status": "passed",
+ "tokens": 212834,
+ "cache_read_tokens": 3460096,
+ "seconds": 484.4
+}

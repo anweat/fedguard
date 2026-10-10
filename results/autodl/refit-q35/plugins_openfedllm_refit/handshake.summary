@@ -1,0 +1,6 @@
+== runs/plugins_openfedllm_refit/rec_handshake/alpaca-gpt4_400_fedavg_c5s5_i4_b4a1_l128_r16a32_20261011030322
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client protegofed_client           client_announce             10      0       0       0    10.28  {"scored": 16, "main_cluster": 15}
+client protegofed_client           client_pre_train            10      0     160      10     0.00  {"scored": 16, "masked": 1}
+server protegofed_server           server_exchange              2      0      10       0     0.00  {"centroids": 5, "main_cluster": 5}
+changes: protegofed_client: mask_samples=10

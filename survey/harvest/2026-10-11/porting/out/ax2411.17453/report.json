@@ -1,0 +1,141 @@
+{
+ "key": "ax2411.17453",
+ "verdict": "partial",
+ "plugins": [
+  {
+   "name": "peftguard",
+   "class": "PEFTGuard",
+   "side": "server",
+   "stages": [
+    "server_aggregate"
+   ],
+   "needs": [
+    "uploads"
+   ],
+   "resources": [
+    "classifier"
+   ],
+   "acts": [
+    "select_and_weight"
+   ]
+  }
+ ],
+ "steps_total": 11,
+ "steps_ported": 5,
+ "steps_outside": 6,
+ "ops_used": [
+  "fedguard.ops.states.module_info",
+  "fedguard.ops.lowrank.LowRank.lora",
+  "fedguard.ops.lowrank.LowRank.increment",
+  "fedguard.ops.lowrank.LowRank.to",
+  "fedguard.ops.lowrank.LowRank.dense"
+ ],
+ "new_helpers": [
+  {
+   "name": "_modules",
+   "lines": 5,
+   "generic": true,
+   "what": "LoRA module prefixes of a state dict that carry both factors, sorted. The same rule already exists as fedguard.views.uploads.lora_modules, but that module is not on the plugin import surface (plugins may import fedguard.ops.*, fedguard.core.* and fedguard.methods.server_update only), so it is 3 lines of key parsing here."
+  },
+  {
+   "name": "_places",
+   "lines": 8,
+   "generic": true,
+   "what": "(block, role) -> module prefix for one state dict, built on fedguard.ops.states.module_info. This is what gives Eq. (13) its channel axis (the target modules of a block) and Eq. (14) its layer axis."
+  },
+  {
+   "name": "_stack",
+   "lines": 11,
+   "generic": true,
+   "what": "Steps 2-4 for one client: the LowRank effect of every (block, role) module through the view (ctx.uploads.cumulative / .increment), a shape check, and torch.stack into F_input. Nothing in fedguard.ops builds this tensor."
+  }
+ ],
+ "missing_ops": [
+  {
+   "name": "conv_mlp_scorer",
+   "what": "There is no operator that can hold or run a trained neural component. fedguard.ops.probe fits and applies a linear probe on flat feature vectors, which is not the meta-classifier of Eq. (12): the paper's Table 6 shows that dropping the convolution for global pooling collapses accuracy to 50.00% (AUC 0.742) and max-pooling to 89.33%. So step 5 can only be a call into an opaque callable plus a threshold, and the detector cannot live in fedguard.ops."
+  }
+ ],
+ "extraction_needs": [
+  {
+   "data": "the LoRA factor pair (A, B) of every module of one client's adapter",
+   "where": "server side, after the uploads arrive and before aggregation (SERVER_RECEIVE / SERVER_AGGREGATE)",
+   "provided": "yes",
+   "via": "needs={'uploads'}; ctx.uploads.state(cid) for the whole state, ctx.uploads.factors(cid, module) for one module"
+  },
+  {
+   "data": "which transformer block and which target module each factor pair belongs to (Eq. (13) needs the target modules of a block, Eq. (14) needs the block order)",
+   "where": "server side, same moment, read from the state-dict keys",
+   "provided": "yes",
+   "via": "fedguard.ops.states.module_info(key) returns layer (first integer component) and role (last path component); the keys come from ctx.uploads.state(cid)"
+  },
+  {
+   "data": "the adapter's weight-space change delta = B A, materialized at base-weight shape (d_out, d_in), rank removed (Eq. (6))",
+   "where": "server side, same moment",
+   "provided": "yes",
+   "via": "ctx.uploads.cumulative(cid, module) -> LowRank -> .dense(); the round's change is ctx.uploads.increment(cid, module). This is exactly the rank-independence that the paper calls the key to cross-rank transfer (Table 9)"
+  },
+  {
+   "data": "the alpha / r scale that the served model actually applies to B A",
+   "where": "server side, static for the run",
+   "provided": "yes",
+   "via": "ctx.spec.lora_scale (RunSpec.lora_scale); UploadView already folds it into cumulative / increment, so the plugin does not apply it a second time"
+  },
+  {
+   "data": "the participants of the round and a way to keep an adapter out of the aggregate",
+   "where": "server side, SERVER_AGGREGATE",
+   "provided": "yes",
+   "via": "ctx.uploads.clients plus acts={'select_and_weight'}: Decision(excluded={...}) removes a client from before_aggregate(); clients not flagged keep the weight they would have had"
+  },
+  {
+   "data": "an adapter layout that is uniform across clients and across rounds (same blocks, same target roles, and target modules that share (d_out, d_in); the classifier is trained for one input shape)",
+   "where": "server side, every round",
+   "provided": "partly",
+   "via": "the runner validates uploads against the broadcast base (strict_shapes, key by key and shape by shape), and the plugin itself refuses to judge a client that lacks a (block, role) pair, and refuses the round when the configured roles do not stack (this is where GQA models fail: q_proj is 4096x4096 and v_proj is 1024x4096 in Llama-3-8B). The paper says only that any variation in input dimensions requires retraining the classifier (Section 7); it gives no alignment rule, so nothing in the library can supply one"
+  }
+ ],
+ "external_state": [
+  "The trained meta-classifier itself (resource `classifier`): one callable F_input -> P(backdoored) fitted offline. It is the trained network of Eq. (12), and the plugin cannot detect anything without it.",
+  "PADBench, or an equivalent labelled adapter set: 250 benign + 250 backdoored adapters per dataset x attack x PEFT method x model configuration, 13,300 adapters in total (Section 1.1, Table 15), split 8:2 with 10% of D_train held out for validation (Section 5.3.2), plus the base LLMs and the PEFT fine-tuning compute that produces them.",
+  "One classifier per input shape: base model, target-module set, block count and (d_out, d_in) all fix F_input, and the paper states that any variation in input dimensions requires training a new classifier (Section 7). The plugin's roles/threshold/space settings are the deployment side of that.",
+  "Optional, for zero-shot transfer to unseen attacks (steps 9-10): three classifiers trained on three different attack datasets and their parameter average; the paper does not give the averaging weights or the contrastive temperature.",
+  "Optional, for the mitigation the paper evaluates (step 11): Fine-mixing needs clean pre-trained weights and 2,500 clean sentences per class. It is a third-party method, not part of PEFTGuard, and is out of scope here."
+ ],
+ "missing_runtime": [
+  {
+   "what": "The feature is dense by construction and the library is built to avoid exactly that: fedguard.ops.lowrank exists so that a LoRA effect is never formed, while Eq. (13)(14) feed the formed d_out x d_in matrix to a convolution. Building F_input for one client of Llama-2-7B (q and v, 32 blocks) is 64 x 4096 x 4096, about 1.07e9 elements, 4 GiB in float32, the paper's own example; there is no chunked, streamed or low-rank variant of the feature in the library.",
+   "blocks": "steps 4-5 on a realistic 7B deployment without memory planning outside the plugin; the plugin builds one client's F_input at a time and releases it, which is all the library allows"
+  },
+  {
+   "what": "No server-side action beyond the aggregation. The paper's platform can refuse to merge an adapter, take it down or warn users (Section 3.1, Section 6), and that disposition is left undefined; the library's server-side interventions are aggregation-scoped (select_and_weight, transform_update, replace_global).",
+   "blocks": "the platform half of the paper's scenario: an exclusion from this round's aggregate is the closest expressible action, and a durable per-adapter verdict (quarantine, takedown, hand-off to mitigation) has no place in a round"
+  }
+ ],
+ "deviations": [
+  "Centralized to federated: the paper inspects a published adapter file; here the object judged is the LoRA a client uploads in the round, and delta is B A of those uploaded factors (ctx.uploads.cumulative), not read from a standalone file.",
+  "No aggregation exists in the paper, so the mounting point is a choice: SERVER_AGGREGATE, where the uploads and the select_and_weight action are both available, i.e. before the update is merged into the global model, which is the 'without merging them into the original LLMs' of Section 3.1.",
+  "The paper defines no action for a positive verdict, so 1 is mapped to exclusion from this round's aggregation; a client that is not flagged keeps its aggregation weight, and a client that could not be judged is not excluded.",
+  "The library multiplies by lora_scale (alpha / r) inside ctx.uploads, so the delta handed to the classifier is scale * B A; the paper writes delta = B A (Eq. 6) without that factor.",
+  "The delta of the paper is the full effect of a standalone adapter, while a federated upload is a change relative to the broadcast base; space='increment' (uploaded - base) is offered for that reading, and the default space='adapter' is Eq. (6) applied to the uploaded factors.",
+  "The meta-classifier is not in the plugin: it is the offline-trained component of the defense and the paper gives its architecture only as Figure 7a, so it enters as an opaque callable resource (rule 3). The plugin implements the whole specified inference pipeline around it plus the decision."
+ ],
+ "open_choices": [
+  "Binary threshold: the paper reports Detection Accuracy and AUC and writes only '0/1'; the default is 0.5 on a sigmoid output, exposed as threshold=.",
+  "Precision: F_input is formed in float32 (dtype=torch.float32) although the uploads may be bfloat16; the paper does not say at what precision the feature is built.",
+  "Ordering: blocks ascending by the integer component of the module path, target roles of a block in the order of `roles` (default q_proj then v_proj, the default target modules of Table 15) - the order Eq. (13) and Eq. (14) prescribe.",
+  "The block set of a round is the union over that round's uploads; a deployment whose clients carry different module sets therefore judges nobody, the conservative reading of Section 7.",
+  "An adapter missing a configured (block, role) pair is not judged and not excluded, rather than zero-filled; roles=('q_proj',) is the degenerate single-module form of Table 5, which gives F_input of shape (blocks, d_out, d_in).",
+  "The module listing of a state dict is re-implemented in 3 lines because fedguard.views.uploads.lora_modules is not importable from a plugin file.",
+  "The plugin keeps no state across rounds (ctx.state is unused), which matches the paper: detection is a single judgement on one adapter, with no accumulation (Section 4, sampling table: rounds unused)."
+ ],
+ "needs_from_authors": [
+  "The architecture of PEFTGuard_cls (Figure 7a): convolution kernel size, stride, padding, channel count, the number and width of the MLP layers, activations, normalization and where dropout=0.4 sits. Without it the trained network can only be used, never rebuilt or retrained.",
+  "Whether a probability threshold exists at all, and whether the 0/1 comes from sigmoid + 0.5 (they report DA and AUC, not a threshold).",
+  "How Eq. (13) stacks delta_q and delta_v when they do not share (d_out, d_in): Llama-3-8B, listed among the base models of Table 15, uses grouped-query attention, where v_proj is 1024x4096 against q_proj 4096x4096. The paper does not discuss it.",
+  "Whether DoRA's magnitude vector m enters the feature and whether AdaLoRA's P, Lambda, Q are multiplied out to delta = P Lambda Q before the stack (Section 2.2 defines them; Section 4.2 does not say).",
+  "The PADBench split script, seeds, and the sampling ratio of the 'randomly sampled sub-datasets' used to build the benign and backdoored adapters.",
+  "The meta-classifier training schedule (epochs, LR schedule, early stopping, model selection) - only batch size 4, Adam, lr 2e-5, weight decay 1e-5 are given - and the fusion weights and contrastive temperature of steps 9-10."
+ ],
+ "confidence": "medium",
+ "confidence_reason": "The extraction and the feature pipeline are certain and tested: the judged object is the uploaded adapter, the library exposes exactly the factors (uploads.factors/state), the low-rank product (uploads.cumulative/.increment, dense) and the module/layer structure (states.module_info), and the tests check that F_input equals an independent rebuild of Eq. (6)(13)(14) - including the increment variant, a q-only layout, and a deployment the plugin refuses to judge - and that a positive verdict really removes the client from the aggregation. What keeps this from 'high': the detector itself is not reproducible from the paper (architecture only in Figure 7a, training set PADBench not present), so the port cannot be shown to detect any real backdoor; two mappings are mine because the paper has none (which object is 'the adapter' in a round, and what a positive verdict does); and the paper's own feature tensor is 4 GiB per adapter on its example model, which the library can express but not make cheaper."
+}

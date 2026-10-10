@@ -1,0 +1,175 @@
+{
+ "key": "huang2024vaccine",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 52946,
+    "outputTokens": 12815,
+    "cacheReadTokens": 747136,
+    "cacheWriteTokens": 0,
+    "totalTokens": 812897
+   },
+   "seconds": 121.8,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 82214,
+ "report": {
+  "key": "huang2024vaccine",
+  "verdict": "not_expressible",
+  "plugins": [
+   {
+    "name": "vaccine_alignment",
+    "class": "VaccineAlignment",
+    "side": "server",
+    "stages": [
+     "server_distribute"
+    ],
+    "needs": [],
+    "resources": [
+     "alignment_data"
+    ],
+    "acts": []
+   }
+  ],
+  "steps_total": 9,
+  "steps_ported": 0,
+  "steps_outside": 3,
+  "ops_used": [],
+  "new_helpers": [],
+  "missing_ops": [],
+  "extraction_needs": [
+   {
+    "data": "the per-layer hidden embeddings e_{l,t} of the alignment batch, with their place in the autograd graph",
+    "where": "inside the forward pass of an alignment step, server side",
+    "provided": "partly",
+    "via": "ModelHandle.activations(samples, select, pool, what) returns each selected module's input or output, but at pool=\"none\" only for 3-D activations and always .detach()ed, so the tensors are readable and not differentiable; nothing returns them with a graph."
+   },
+   {
+    "data": "the gradient of the alignment loss with respect to each layer's hidden embedding, dL/de_l",
+    "where": "after the first backward of an alignment step, before the second forward",
+    "provided": "no",
+    "via": "no interface reaches layer outputs. LossView.gradients_of(scalar, select) computes torch.autograd.grad against named_parameters() only, and ModelHandle.per_sample_gradients differentiates per sample against a parameter group (or frozen base weights under scope=\"all\"); a hidden activation is neither."
+   },
+   {
+    "data": "a forward pass of the same batch with a perturbation added to each layer's output (f_wl(e) + eps_l)",
+    "where": "the second pass of an alignment step",
+    "provided": "no",
+    "via": "ModelHandle has no hook, patch or pre-forward method, and the plugin contract forbids reaching past the handle. The trainer extension states the same limit from the other side (\"What stays out of reach: the forward pass itself ... intermediate activations\"); its transform_loss action replaces the loss scalar after the pass, which cannot change what the pass computed. loss_on(batch)/losses(samples) run the model's own forward on samples and accept no activations."
+   },
+   {
+    "data": "the alignment mini-batch (x_t, y_t) of the provider's own corpus",
+    "where": "every alignment optimization step, before the first forward",
+    "provided": "partly",
+    "via": "LossView.loss_on(batch) and HFModelHandle accept a batch in the trainer's format, and hf_trainer_ext.collate_texts builds one from texts, so a defender-supplied corpus can be turned into a batch. But this only reaches the loss, i.e. the same forward-pass limit as above; and the paper's placement is pre-deployment, before any user data or client exists, so no client-side ALIGNMENT batch exists unless one declares the federation step itself to be the alignment."
+   },
+   {
+    "data": "the global cross-layer gradient norm ||concat_l dL/de_l||",
+    "where": "between the first backward and the perturbation construction",
+    "provided": "no",
+    "via": "follows from dL/de_l: with no per-layer gradients there is nothing to concatenate. Note the normalization is over all layers at once; a per-layer norm would be a different (and wrong) method."
+   },
+   {
+    "data": "an optimizer step driven by the gradient of the perturbed pass",
+    "where": "the alignment step's update",
+    "provided": "no",
+    "via": "the host owns the optimizer; fedguard's only gradient point is CLIENT_PRE_STEP ('gradients are computed, the optimizer has not stepped'), which can replace a gradient but cannot supply one produced by a second, differently-corrupted forward pass."
+   },
+   {
+    "data": "the trainable LoRA factors the alignment updates, and their merge into the base model",
+    "where": "end of alignment, before distribution",
+    "provided": "partly",
+    "via": "states.* and the LoRA state dicts are the library's normal currency, and SERVER_DISTRIBUTE/outgoing carry the model that is sent; the merge itself is a training-run operation, not a per-round intervention."
+   }
+  ],
+  "external_state": [
+   "the provider's safety alignment corpus {x_i, y_i} (the paper uses 2000 BeaverTails harmful-prompt/safe-answer pairs): a `resources` entry, never a fedguard view",
+   "the pre-trained LLM being aligned, and a server-side model handle to run it: a server-side plugin may declare `model_handle`, but the host supplies no model on the server, so the defender must pass one in",
+   "the alignment optimizer and its schedule (AdamW, lr 1e-3, weight decay 0.1, cosine decay, warmup 0.1) plus the T-step / 50-epoch loop: the host's training loop, outside any plugin",
+   "the LoRA adapters (rank 8, dropout 0.1), one for alignment and one for later user fine-tuning, and the merge step between them",
+   "the user fine-tuning stage itself, which Vaccine deliberately leaves untouched (Appendix E)"
+  ],
+  "missing_runtime": [
+   {
+    "what": "a differentiable read of a layer's output (hidden embedding) with a graph, at a point where the loss is available",
+    "blocks": "step 2 (backward_layer_embedding_grad) and therefore step 3 (concat_layer_gradient_norm) and step 4 (layerwise_embedding_perturbation)"
+   },
+   {
+    "what": "a way to run one forward pass with a supplied modification to a layer's output, i.e. a plugin-visible forward hook or a handle that accepts perturbed activations",
+    "blocks": "step 5 (forward_hook_add_perturbation) and step 6 (perturbed_forward_backward), which is the entire defense: without it Vaccine degenerates into ordinary SFT (the paper's own point 3)"
+   },
+   {
+    "what": "a training-step position on the server side, where this one-off alignment actually happens; the server has no model and no step, and the client-side steps run after their host's forward pass has finished",
+    "blocks": "steps 1-7 as an alignment stage; only a client-side ALIGNMENT step would be reachable, which is a different method"
+   },
+   {
+    "what": "a loss point whose forward pass has not already been consumed, i.e. an extension that can re-enter the model rather than only replace the loss scalar",
+    "blocks": "the whole two-pass structure; transform_loss at CLIENT_LOSS substitutes a scalar but cannot inject anything into the pass that produced it"
+   }
+  ],
+  "deviations": [
+   "The paper is centralized (no clients, no round, no aggregation) and runs once at alignment time, before any user fine-tuning. A fedguard plugin is invoked at fixed points of a federated round; the nearest intended position is server-side before distribution (SERVER_DISTRIBUTE), which is why the shell is mounted there. This placement had to be chosen by the port, not read off the paper.",
+   "The paper's mechanism (steps 2-6) is not ported at all: it is not expressible with the published interfaces. No substitute was fabricated, because a gradient-level stand-in (after-the-fact scaling of CLIENT_PRE_STEP gradients) is not what the paper does: the paper's own point 3 is that one pass degenerates to ordinary SFT.",
+   "The method needs a model on the server, but the host supplies none; a server-side plugin may declare `model_handle` and have the defender pass one in, which is a deployment requirement recorded under `external_state`, not something this port can supply.",
+   "Nothing of the method's numeric settings (rho, batch 5, 50 epochs, lr 1e-3, AdamW, weight decay 0.1, LoRA rank 8 / dropout 0.1) is baked into the shell, since none of it could be exercised; the report's numbers are the paper's, not this port's."
+  ],
+  "open_choices": [
+   "the default rho for the main experiments (Section 5.1 gives none; Tables 6 and 7 sweep 0.01/0.1/1/2/5/10, and Section 5.4 mentions 0.2, which no table lists) — nothing chosen, since the mechanism is unported",
+   "how to treat a zero or near-zero cross-layer gradient norm, where eps = rho * g / ||g|| is undefined: the paper gives no stability rule (an eps floor or a skipped step would have to be chosen)",
+   "whether the perturbation covers every token position, every hidden dimension, and modules beyond attention (the algorithm says each layer l in L, 4.2 says LoRA on the attention modules) — not resolvable from the text",
+   "whether the first backward uses retain_graph or a second forward pass to keep the embedding gradients (the paper does not say)",
+   "the Double-LoRA description versus Appendix B.1's 'we use the same LoRA adaptor for alignment/fine-tuning'",
+   "how T relates to 50 epochs, batch size 5 and 2000 samples (drop-last, gradient accumulation)",
+   "the default tau and how to choose it for accelerated Vaccine (Table 10 gives four points, no rule)",
+   "random seeds, repetition count and error bars (the paper gives none)",
+   "how Vaccine would extend to RLHF (Appendix E lists it as a limitation)",
+   "how alignment results would be combined across clients if this were moved into a federated setting: the paper is silent and this port cannot invent it"
+  ],
+  "needs_from_authors": [
+   "whether the reference implementation keeps embedding gradients with retain_graph or with two independent forward passes, and its numerical guard when the gradient norm is zero (dictates whether a future interface needs graph retention or just a repeatable forward)",
+   "whether the perturbation is applied to attention-only modules or to every block output, and whether it covers all token positions and hidden dimensions (decides which module outputs an interface would have to expose)",
+   "the default rho and the intended way to select it, absent from Section 5.1",
+   "whether the alignment and fine-tuning adapters are the same object or two, given the conflict between 4.2 and Appendix B.1"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "The negative finding is solid and rests on interfaces I read in the tree, not on inference: ModelHandle (fedguard/views/model.py) has no hook or forward-patch method and its activations() returns detached tensors; LossView.gradients_of (fedguard/views/client.py) differentiates only against named_parameters(); the trainer extension's own docstring names the forward pass and intermediate activations as out of reach, and its transform_loss action can only replace the scalar after the pass. The verdict is capped below high because it is an argument about a missing capability, which cannot be confirmed by a test, and because I could not execute anything to check it: the standing policy is read-only and no writable temp directory exists, so importing torch fails and the escalation for a scratch directory found no approval channel. I therefore verified by reading source and left the working tree untouched (git status on fedguard/ is clean). If a hidden path to the model (or a plugin that ignores the ModelHandle contract) were accepted, step 2 could be reached; step 5, the injection, has no such path at all, which is what fixes the verdict."
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "VaccineAlignment",
+    "name": "vaccine_alignment",
+    "side": "server",
+    "stages": [
+     "server_distribute"
+    ],
+    "needs": [],
+    "resources": [
+     "alignment_data"
+    ],
+    "acts": [],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "open_choices"
+    ],
+    "lines": 60
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 71,
+  "test_lines": 31,
+  "test_summary": "1 passed, 1 skipped in 0.84s"
+ },
+ "status": "passed",
+ "tokens": 65761,
+ "cache_read_tokens": 747136,
+ "seconds": 121.8
+}

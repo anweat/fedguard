@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fedguard"
+version = "0.1.0.dev0"
+description = "Capture and plugin layer for federated LoRA fine-tuning"
+requires-python = ">=3.10"
+# 核心库只依赖 torch / numpy / safetensors，适配器所需的框架依赖由各自环境提供
+dependencies = ["torch>=2.0", "numpy", "safetensors", "pyyaml"]
+
+[tool.setuptools.packages.find]
+include = ["fedguard*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+"fedguard.kb" = ["*.yaml", "generated/*.md"]

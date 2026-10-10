@@ -1,0 +1,195 @@
+{
+ "key": "ax2305.05506",
+ "verdict": "partial",
+ "plugins": [
+  {
+   "name": "fedgt",
+   "class": "FedGT",
+   "side": "server",
+   "stages": [
+    "server_aggregate"
+   ],
+   "needs": [
+    "uploads",
+    "model_handle"
+   ],
+   "resources": [
+    "assignment",
+    "null_table",
+    "delta_table",
+    "validation"
+   ],
+   "acts": [
+    "select_and_weight"
+   ]
+  }
+ ],
+ "steps_total": 23,
+ "steps_ported": 16,
+ "steps_outside": 6,
+ "ops_used": [
+  "fedguard.ops.cluster.kmeans",
+  "fedguard.ops.cluster.silhouette",
+  "fedguard.ops.geometry.pairwise_sq_distances",
+  "fedguard.ops.states.module_info",
+  "fedguard.ops.states.stack",
+  "fedguard.ops.states.weighted_average",
+  "fedguard.ops.transform.pca"
+ ],
+ "new_helpers": [
+  {
+   "name": "lora_modules",
+   "lines": 11,
+   "generic": true,
+   "what": "module prefixes of a LoRA state dict that carry both factors. fedguard.views.uploads.lora_modules computes the same thing but the porting rules let a plugin import only ops, so it is rebuilt from ops.states.module_info."
+  },
+  {
+   "name": "_depth",
+   "lines": 4,
+   "generic": true,
+   "what": "layer index of a module prefix through ops.states.module_info, -1 when the name carries no layer number; used to pick the readout module that stands for the fully connected layer."
+  },
+  {
+   "name": "dunn_index",
+   "lines": 21,
+   "generic": true,
+   "what": "step R9. ops.cluster has silhouette and the gap statistic but no Dunn index; squared Euclidean distances as the paper writes them, with the 0/0 and 0-diameter conventions spelled out in the plugin."
+  },
+  {
+   "name": "trellis_llr",
+   "lines": 33,
+   "generic": false,
+   "what": "steps R15 and R16: the trellis of the assignment matrix (states are partial syndromes, 2**m of them) and the forward-backward posterior LLRs of Eq. (17) with the factorized BSC likelihood and the 1-delta / delta branch metrics. Nothing in ops works on a trellis or on a sequence."
+  }
+ ],
+ "missing_ops": [
+  {
+   "name": "dunn_index",
+   "what": "Eq. (5) needs a cluster validity index that prefers separated clusters; ops.cluster stops at silhouette and the gap statistic, so it is written in the plugin file (21 lines, generic)."
+  },
+  {
+   "name": "trellis_forward_backward",
+   "what": "the decoder of Eq. (17) has no operator; it is paper-specific and lives in the plugin file (33 lines)."
+  },
+  {
+   "name": "belief_propagation_llr",
+   "what": "the alternative decoder for assignment matrices too large for the forward-backward (R16b). The paper gives no algorithm, so no operator was written and the step stays unported."
+  }
+ ],
+ "extraction_needs": [
+  {
+   "data": "the m group aggregates u_1..u_m of the group-testing round (what the paper's server actually observes)",
+   "where": "server, after the group secure aggregation and before the test, in the test round",
+   "provided": "no",
+   "via": "no data kind for group aggregates exists (KINDS has none, and `aggregate` is a single state, not m). The plugin rebuilds them from `uploads` with ops.states.weighted_average over the group members, which is only possible where the deployment exposes per-client uploads; RunSpec.unavailable with 'uploads' makes check_contract refuse the plugin before the first round."
+  },
+  {
+   "data": "the per-client uploaded LoRA states and the participant list of the round",
+   "where": "server, SERVER_AGGREGATE",
+   "provided": "yes",
+   "via": "ctx.uploads / UploadView.clients, state(cid), base_state(); ctx.participants"
+  },
+  {
+   "data": "the assignment matrix A and the group membership of every client of the round",
+   "where": "server, offline design, and the test round where the columns must be matched to the round's clients",
+   "provided": "partly",
+   "via": "resource `assignment` carries A; the library supplies the participant list at the stage, but has nowhere to put A and no way to hand A to the clients (SERVER_DISTRIBUTE sends a LoRA state, not a configuration) without an announce/exchange round trip, which the paper does not have."
+  },
+  {
+   "data": "the task utility of each group aggregate on a server-side validation set (top-1 accuracy, balanced accuracy, source label recall)",
+   "where": "server, test round, on the aggregated group models",
+   "provided": "yes",
+   "via": "`model_handle` (defender-supplied server model, probe=) with ModelHandle.lora(state) plus ModelHandle.logprob(prompts, targets) for candidate-ranking accuracy, or ModelHandle.losses(samples) for a loss utility. Requires the defender to pass a runnable server model; without one the plugin reports a skip."
+  },
+  {
+   "data": "the readout (fully connected) layer weights of each group aggregate, for the first principal component",
+   "where": "server, test round",
+   "provided": "partly",
+   "via": "only LoRA factors are visible (UploadView.state, ops.states.stack over the readout module keys); the full weight matrix is never formed and ModelHandle has no call that returns weights."
+  },
+  {
+   "data": "the offline tables Pr(Z = z | N_m = n_m), Delta-hat(n_m) and n_m^max",
+   "where": "outside training, defender side, computed from A",
+   "provided": "no",
+   "via": "resources `null_table` and `delta_table`; the library has no place for offline precomputation and no data kind for a table. The paper computes them offline (Eqs. (3), (11), (15))."
+  },
+  {
+   "data": "which round runs the group test, and reuse of the flagged set in later rounds",
+   "where": "server, every round",
+   "provided": "partly",
+   "via": "ctx.round plus ctx.state (persisting across rounds) let the plugin test once (test_round) and re-emit the exclusion; the library has no notion of a round that produces no global model and no cross-round exclusion of a client."
+  },
+  {
+   "data": "the exclusion of the flagged clients and the re-aggregation over the rest",
+   "where": "server, SERVER_AGGREGATE and the host aggregation that follows it",
+   "provided": "yes",
+   "via": "Decision(excluded=...) with the select_and_weight action; the adapter drops those clients in before_aggregate and aggregates the kept ones."
+  }
+ ],
+ "external_state": [
+  "the assignment matrix A (BCH code of length 15 with 8 redundant bits for n = 15; (30, 18) cyclic code for n = 30), its group membership and n_m^max",
+  "the offline design toolchain: the Eq. (3) enumeration or Monte Carlo, the exact or sampled Pr(Z | N_m) of Eq. (11), and the Eq. (15) Monte Carlo search for Delta-hat(n_m)",
+  "the server-side validation quasi-dataset (100 samples in the paper) with its candidate completions and, for a targeted attack, the marks of the attacked source label",
+  "a runnable server-side model and the model handle that loads a candidate LoRA and scores candidates (the host supplies none)",
+  "the secure aggregation implementation of the host, including how one protocol instance produces m overlapping group aggregates",
+  "the task model and the client data partition, which FedGT does not change"
+ ],
+ "missing_runtime": [
+  {
+   "what": "no data kind for secure group aggregates: a server plugin that declares `uploads` sees every per-client LoRA in the clear, and a deployment that hides them (RunSpec.unavailable with 'uploads') refuses the plugin before the first round.",
+   "blocks": "R3 and with it the setting the paper is about; the port has to build the group aggregates itself from cleartext uploads, so it only runs where secure aggregation is off, the opposite of the paper's deployment."
+  },
+  {
+   "what": "the aggregation path of the library produces exactly one global state per round (AggregateView.result) and select_and_weight expresses one weighting; there is no way to expose m group aggregates.",
+   "blocks": "R3 as a step inside the library, and with it the paper's group-testing round."
+  },
+  {
+   "what": "the server has no model unless the defender passes a probe, and ModelHandle exposes no classifier head or label-prediction call.",
+   "blocks": "R4 in its literal form: the paper metrics must be rebuilt as candidate-ranking accuracy from ModelHandle.logprob, which is a task adaptation (the rank of the gold completion against the offered candidates, not the argmax of a classifier)."
+  },
+  {
+   "what": "no configuration channel: SERVER_DISTRIBUTE carries a LoRA state, and the only way to send A to the clients is a channel message, which needs CLIENT_ANNOUNCE / SERVER_EXCHANGE and therefore a round trip the paper does not have.",
+   "blocks": "R1, the distribution of A and of the group structure to the clients."
+  },
+  {
+   "what": "a round always ends in one ordinary aggregation of the kept clients; the paper's test round is spent on m group aggregations and (by the cost breakdown of Section IV-D) produces no ordinary global model.",
+   "blocks": "the exact round structure of R18; the port runs the test inside a normal round and lets that round update the global model."
+  },
+  {
+   "what": "no cross-round exclusion: a client excluded in one round is offered again in the next unless a plugin proposes its exclusion again.",
+   "blocks": "nothing, but FedGT's fixed M-hat for the rounds after the test lives in the plugin's ctx.state rather than in the runtime."
+  }
+ ],
+ "deviations": [
+  "Secure aggregation is not modeled: the paper's server sees only the m group aggregates, the port computes them from cleartext per-client uploads, so the privacy property the method is built on is absent (R3).",
+  "A group aggregate is the factor-wise mean of the members' LoRA states, whose product is not the mean of the products; that mean, not the paper group aggregate of full models, goes to the model handle and to the principal component (R4, R5).",
+  "The utility is a candidate-ranking accuracy built from ModelHandle.logprob (or the negative mean loss with metric = loss), not the accuracy of a classifier head, which the protocol cannot expose (R4).",
+  "The first principal component is taken over the LoRA factors of one readout module instead of over the fully connected weight matrix of the full model (R5).",
+  "The exclusion is this round's select_and_weight decision and the host aggregates the kept clients normally; the paper's test round performs m group aggregations and no ordinary one, and its M-hat is reused in the later rounds (implemented with test_round, R18).",
+  "The assignment matrix is not shipped by the plugin; R1 is left to the deployment, and A enters as a resource (R1, R15).",
+  "The metric and, for source_recall, the attacked source label are deployment choices the paper leaves to monitoring; nothing locates the source label automatically."
+ ],
+ "open_choices": [
+  "The two features are standardized to zero mean and unit variance before clustering, since the paper does not say whether they are normalized or weighted.",
+  "Distances are squared Euclidean, as the paper formulas print them, for the silhouette, the Dunn index and the k-means input geometry.",
+  "The silhouette needs two clusters: s(1) = 0, and a k-means run that collapses to fewer than k distinct labels is not scored.",
+  "Dunn index conventions: +inf when the centers are apart but every cluster holds one point, 0.0 when two centers coincide; ties on the largest Dunn index go to the smallest k.",
+  "The negative cluster is the one with the largest mean utility, ties to the lowest cluster label; a single cluster makes every test negative.",
+  "The maximum-likelihood estimate of n_m takes the smallest n_m on a tie (which is what the test assignment matrix produces at z = 2).",
+  "k-means keeps the library defaults (k-means++ seeding, 100 iterations, 5 restarts) and draws its seed from ctx.rng so a run replays.",
+  "The readout module is the uploaded module of the highest layer index unless readout_module names another.",
+  "The assignment matrix must cover exactly the clients of the round, otherwise the plugin reports a skip and excludes nobody.",
+  "The metric defaults to top-1 accuracy (the paper choice for untargeted attacks); candidates are compared by their mean per-token log-probability and ties go to the first candidate.",
+  "p = 0.05 and s_thres = 0.6 are the paper values used as defaults; a missing or non-finite Delta-hat entry makes the FedGT-Delta decoder skip.",
+  "test_round = None runs the group test in every round the plugin is mounted in, which the paper allows at extra communication cost; test_round = k runs it once and reuses the flagged set."
+ ],
+ "needs_from_authors": [
+  "The assignment matrices themselves (the (15, 8) BCH and (30, 18) cyclic parity-check matrices), n_m^max, the Pr(Z | N_m) table and the Delta-hat(n_m) search results, with the Monte Carlo sample counts, none of which the paper publishes.",
+  "How one secure aggregation instance yields the m overlapping group aggregates (the masks and secret sharing), which the paper leaves open and which the port therefore cannot reproduce.",
+  "Whether the group-testing round also updates the global model, which global model it tests, and what happens to the flagged clients in the rounds after it.",
+  "The clustering details the paper omits: whether the PCA centers or whitens, whether the two features are normalized or weighted, the k-means initialization, distance and restarts, and the tie-breaks of Eq. (5) and of the negative-test rule.",
+  "How the attacked source label is located automatically; the paper only suggests monitoring per-label recall in the test groups."
+ ],
+ "confidence": "medium",
+ "confidence_reason": "The runtime pipeline R4 to R18 is implemented and covered by synthetic mechanism tests that need no model and run in 0.05 s: the amplified client is flagged by both decoders and all four utility metrics, a clean round flags nobody, the one-shot mode reuses its flags without another model call, a missing server model skips safely, and the forward-backward LLRs are checked against an exhaustive posterior over all 2**n defect vectors. The port is nevertheless not the paper's system: the group aggregates come from cleartext uploads instead of secure aggregation, so the privacy premise is gone; the aggregate and the principal component live in LoRA factor space; the utility is a candidate-ranking adaptation of the paper metrics; and A plus both offline tables are defender assets the paper does not publish. Two observed fragilities are not covered by tests: with a poison too weak to move the validation metric the utility is flat and the cluster declared negative is decided by the PCA feature and the tie-break, and beyond n_m^max (which Eq. (3) bounds) the decoder mis-attributes the syndrome, as seen with two poisoned clients on a one-error-correcting A, where the run flagged both colluders and the client whose column equals their OR."
+}

@@ -1,0 +1,4 @@
+== runs/q35_sweep_0.8B/rec_received_adapter_scan/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009204511
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client received_adapter_scan       client_pre_train            20      0     600       0     0.00  {"flagged_rows": 0}
+changes: rounds with weights=4

@@ -1,0 +1,14 @@
+# A baseline set of server-side controls that needs no model and no external resource: bound what a
+# self-reported sample count can buy, clip update norms, and watch the rest. Two controls enforce,
+# the others alert only.
+policy: 1
+server:
+  fail: open
+  controls:
+    - effect_stats
+    - factor_stats
+    - robust_outlier
+    - {use: report_guard, enforce: true}
+    - {use: norm_clip, enforce: true}
+    - {use: krum, args: {f: 1, m: 3}}          # alert only: what Multi-Krum would have excluded
+    - flame                                     # alert only

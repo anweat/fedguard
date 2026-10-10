@@ -1,0 +1,28 @@
+== runs/plugins_openfedllm_0.8B/rec_server_all/alpaca-gpt4_400_fedavg_c5s5_i4_b4a1_l128_r16a32_20261010214626
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server coordinate_median           server_post_aggregate        2      0       0       2     0.00  {"clients": ["client0", "client1", "client2", "client3", "client4"]}
+server crfl                        server_post_aggregate        2      0       0       2     0.00  {"rho": 2.2, "clip_factor": 0.17351414964276665, "noise": true}
+server effect_stats                server_receive               2      0       0       0     0.00  {"clients": ["client0", "client1", "client2", "client3", "client4"], "gram": [[0.0903851386272013, 0.086329084
+server factor_stats                server_receive               2      0       0       0     0.00  {}
+server flame                       server_aggregate             2      0       0       0     0.00  {}
+server flame                       server_post_aggregate        2      0       0       2     0.00  {"sigma": 0.0002888892665515602}
+server flame                       server_receive               2      0       0       4     0.00  {"bound": 0.28888926655156016}
+server fldetector                  server_aggregate             2      0       0       0     0.00  {}
+server fldetector                  server_post_aggregate        2      0       0       0     0.00  {}
+server fldetector                  server_receive               2      0       0       0     0.00  {"skipped": "window 0/10"}
+server foolsgold                   server_aggregate             2      0      10       0     0.00  {}
+server freqfed                     server_aggregate             2      0       0       0     0.00  {"low_frequency_components": 339076}
+server jump_rollback               server_post_aggregate        2      0       2       0     0.00  {"rolled_back": false}
+server krum                        server_aggregate             2      0      10       0     0.00  {}
+server lomar                       server_aggregate             2      0       0       0     0.00  {}
+server lomar                       server_receive               2      0      10       0     0.00  {"k": 2, "below_threshold": ["client1", "client2", "client4"]}
+server mcd                         server_aggregate             2      0       0       0     0.00  {}
+server mcd                         server_receive               2      0       0       0     0.00  {"buffered": 5, "period": 0}
+server mud_hog                     server_aggregate             2      0       0       0     0.00  {}
+server mud_hog                     server_receive               2      0       0       0     0.00  {"skipped": "warm-up or fewer than 3 clients (round 1)"}
+server norm_clip                   server_receive               2      0      10       0     0.00  {"bound": 0.8666677996546956}
+server report_guard                server_aggregate             2      0      10       0     0.00  {"caps": {"client0": {"peer": 160.0, "pinned": 80.0}, "client1": {"peer": 160.0, "pinned": 80.0}, "client2": {
+server robust_outlier              server_receive               2      0      10       0     0.00  {"reference": "cross_section"}
+server safe_fedllm_step_trust      server_aggregate             2      0      10       0     0.00  {}
+server trimmed_mean                server_post_aggregate        2      0       0       2     0.00  {"clients": ["client0", "client1", "client2", "client3", "client4"]}
+changes: flame: transform_update=4, flame: replace_global=2, coordinate_median: replace_global=2, trimmed_mean: replace_global=2, crfl: replace_global=2

@@ -1,0 +1,4 @@
+== runs/q35_sweep_0.8B/rec_gradient_spectral_entropy/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009205441
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client gradient_spectral_entropy   client_pre_train            20      0     480      20    33.40  {"threshold": 0.7353858231532436, "bimodal": true, "scored": 24, "masked": 14}
+changes: rounds with weights=4, gradient_spectral_entropy: mask_samples=20

@@ -1,0 +1,12 @@
+flowchart TD
+    init["统一基座、LoRA 配置与数据划分"] --> select["服务器选择本轮客户端"]
+    select --> broadcast["下发全局 LoRA 与训练配置"]
+    broadcast --> train["客户端使用本地数据训练"]
+    poison["攻击配方：指定客户端与注入轮次"] -.-> train
+    train --> upload["上传 LoRA 或约定差分"]
+    upload --> inspect["服务器按可见权限检查更新"]
+    inspect --> aggregate["按策略聚合或跳过"]
+    aggregate --> checkpoint["保存候选及接受的全局状态"]
+    checkpoint --> select
+    checkpoint --> evaluate["独立评测：攻击效果、正常能力、代价"]
+    truth["隔离的实验真值"] -.-> evaluate

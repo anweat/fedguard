@@ -1,0 +1,688 @@
+{
+  "huang2024harmful": {
+    "path": "papers/C0_survey_taxonomy/huang2024harmful_2409.18169.pdf",
+    "source": "workspace:2409.18169.pdf",
+    "bytes": 2823700,
+    "pages": 45,
+    "sha256": "998de601c1445edfb3a9580ef12e6b2639ab24ebbfd6fe35b247ed2f343cc715"
+  },
+  "du2024privacy": {
+    "path": "papers/C0_survey_taxonomy/du2024privacy_2412.16504.pdf",
+    "source": "workspace:2412.16504v1.pdf",
+    "bytes": 216066,
+    "pages": 19,
+    "sha256": "291e87888922516ed1a171970f8aac54de7056adb522de806b722219e55a6ace"
+  },
+  "zhao2025systematic": {
+    "path": "papers/C0_survey_taxonomy/zhao2025systematic_2506.06518.pdf",
+    "source": "https://arxiv.org/pdf/2506.06518",
+    "bytes": 907700,
+    "pages": 28,
+    "sha256": "6aa87c9ad2ca7825596b48e345fe5d18dbe044cf6328014431f169c20a900165"
+  },
+  "li2020backdoorsurvey": {
+    "path": "papers/C0_survey_taxonomy/li2020backdoorsurvey_2007.08745.pdf",
+    "source": "https://arxiv.org/pdf/2007.08745",
+    "bytes": 1584972,
+    "pages": 17,
+    "sha256": "3e0f4dca09a10ef180dacbc99ebd452618e1ba95a48a3cda7e3a5bdbdaa3b405"
+  },
+  "kairouz2019advances": {
+    "path": "papers/C0_survey_taxonomy/kairouz2019advances_1912.04977.pdf",
+    "source": "https://arxiv.org/pdf/1912.04977",
+    "bytes": 1419995,
+    "pages": 121,
+    "sha256": "e3e9563fe9292d3aa4c8bd470da689698b51d72258ee7a904d8928f965c45c12"
+  },
+  "zhang2025flpoison": {
+    "path": "papers/C0_survey_taxonomy/zhang2025flpoison_2502.03801.pdf",
+    "source": "https://arxiv.org/pdf/2502.03801",
+    "bytes": 1327126,
+    "pages": 24,
+    "sha256": "418069b37524d4edba82b8069aafbb98a0d0a231fcfb7290b6fc6a3119088502"
+  },
+  "mcmahan2017fedavg": {
+    "path": "papers/C1_fl_lora_foundations/mcmahan2017fedavg_1602.05629.pdf",
+    "source": "https://arxiv.org/pdf/1602.05629",
+    "bytes": 1311201,
+    "pages": 11,
+    "sha256": "2faf5593d9db413dee96a9be6ab9527cb0413b34fd5024aa60db3a5ad5795384"
+  },
+  "hu2021lora": {
+    "path": "papers/C1_fl_lora_foundations/hu2021lora_2106.09685.pdf",
+    "source": "https://arxiv.org/pdf/2106.09685",
+    "bytes": 1609513,
+    "pages": 26,
+    "sha256": "e9a0d3128767db616085dc0f4e6e455e672e89af823e8ed1282793682787395a"
+  },
+  "dettmers2023qlora": {
+    "path": "papers/C1_fl_lora_foundations/dettmers2023qlora_2305.14314.pdf",
+    "source": "https://arxiv.org/pdf/2305.14314",
+    "bytes": 1065470,
+    "pages": 26,
+    "sha256": "33a4e757c19d6ea8d3cca8958fce8fe405e290272e135c99ee66065c775d5bd1"
+  },
+  "zhang2023fedit": {
+    "path": "papers/C1_fl_lora_foundations/zhang2023fedit_2305.05644.pdf",
+    "source": "https://arxiv.org/pdf/2305.05644",
+    "bytes": 813663,
+    "pages": 21,
+    "sha256": "ee2dc8c1c5b2daa9ff79aa2e30f5027ccb1cb9dfdaa3ae894469cfbfd1fa4473"
+  },
+  "ye2024openfedllm": {
+    "path": "papers/C1_fl_lora_foundations/ye2024openfedllm_2402.06954.pdf",
+    "source": "https://arxiv.org/pdf/2402.06954",
+    "bytes": 1179936,
+    "pages": 28,
+    "sha256": "84ac3e6030af2db43eb8dc47d0d311bd0ab3d62723eeffcbbe0f87985f37bc2f"
+  },
+  "ye2024fedllmbench": {
+    "path": "papers/C1_fl_lora_foundations/ye2024fedllmbench_2406.04845.pdf",
+    "source": "https://arxiv.org/pdf/2406.04845",
+    "bytes": 8830701,
+    "pages": 22,
+    "sha256": "27d3e6e5fcb6a75633fc502d972d7747504706f109317cfbbb29531f24a671f9"
+  },
+  "sun2024ffalora": {
+    "path": "papers/C1_fl_lora_foundations/sun2024ffalora_2403.12313.pdf",
+    "source": "https://arxiv.org/pdf/2403.12313",
+    "bytes": 423335,
+    "pages": 17,
+    "sha256": "8c69b08e409ec1751d10268a4c73463aa0b5d93d159086d329da94b2e801ff1c"
+  },
+  "wang2024flora": {
+    "path": "papers/C1_fl_lora_foundations/wang2024flora_2409.05976.pdf",
+    "source": "https://arxiv.org/pdf/2409.05976",
+    "bytes": 2525998,
+    "pages": 15,
+    "sha256": "bf2a952105e6c9db9fdc487ce89cc502296982189afce8cff4cfed861c0e29f3"
+  },
+  "bonawitz2016secagg": {
+    "path": "papers/C1_fl_lora_foundations/bonawitz2016secagg_1611.04482.pdf",
+    "source": "https://arxiv.org/pdf/1611.04482",
+    "bytes": 380389,
+    "pages": 5,
+    "sha256": "f564edcef851bb223ffa0f9287654968cb65514b9893525a7449c1bbf0d3ce6a"
+  },
+  "ouyang2022instructgpt": {
+    "path": "papers/C1_fl_lora_foundations/ouyang2022instructgpt_2203.02155.pdf",
+    "source": "https://arxiv.org/pdf/2203.02155",
+    "bytes": 1797405,
+    "pages": 68,
+    "sha256": "c1984bb50a5b90fddb895fdc3a0f72e5bc977148c9f63ef6040cbe7a3e1f0d98"
+  },
+  "rafailov2023dpo": {
+    "path": "papers/C1_fl_lora_foundations/rafailov2023dpo_2305.18290.pdf",
+    "source": "https://arxiv.org/pdf/2305.18290",
+    "bytes": 1299212,
+    "pages": 27,
+    "sha256": "92cb3a2b71362acda98a789b03d88688fd33cf5fcf13f81d2b1de30ee7d3b67a"
+  },
+  "sun2024vaguegan": {
+    "path": "papers/C2_fl_poisoning_attacks/sun2024vaguegan_2405.11440.pdf",
+    "source": "https://arxiv.org/pdf/2405.11440",
+    "bytes": 4095171,
+    "pages": 18,
+    "sha256": "618914f71954998daf4b7dc2340935aad34e54a1a5f6487720921f4b7b3de395"
+  },
+  "sun2026pcdm": {
+    "path": "papers/C2_fl_poisoning_attacks/sun2026pcdm_2605.16098.pdf",
+    "source": "existing",
+    "bytes": 3919860,
+    "pages": 16,
+    "sha256": "8356cf91fd18726d636934eb4ce6056349720714b7ba2fd0b9428e51d2350925"
+  },
+  "tolpegin2020dataflip": {
+    "path": "papers/C2_fl_poisoning_attacks/tolpegin2020dataflip_2007.08432.pdf",
+    "source": "https://arxiv.org/pdf/2007.08432",
+    "bytes": 5073809,
+    "pages": 20,
+    "sha256": "579ba7d1eaf6e12e346bf719fa1c2e3db178ca0acc538ed3b9a3d88d9f706555"
+  },
+  "bagdasaryan2020backdoor": {
+    "path": "papers/C2_fl_poisoning_attacks/bagdasaryan2020backdoor_1807.00459.pdf",
+    "source": "https://arxiv.org/pdf/1807.00459",
+    "bytes": 2100604,
+    "pages": 15,
+    "sha256": "4582f21a06ea420562a74cadca775c517d674df45f12201cec0f98ef12511ed6"
+  },
+  "fang2020local": {
+    "path": "papers/C2_fl_poisoning_attacks/fang2020local_1911.11815.pdf",
+    "source": "https://arxiv.org/pdf/1911.11815",
+    "bytes": 741392,
+    "pages": 18,
+    "sha256": "d5652e9cf6bab5e48643757dbe9fdfef5200fe1d9fc4718ce4a6a5688d164250"
+  },
+  "baruch2019little": {
+    "path": "papers/C2_fl_poisoning_attacks/baruch2019little_1902.06156.pdf",
+    "source": "https://arxiv.org/pdf/1902.06156",
+    "bytes": 1007584,
+    "pages": 10,
+    "sha256": "599a2145c5aa11c9eedf4feaa498b5ecc5a7f44eaf4476481fb19430db397506"
+  },
+  "wang2020tails": {
+    "path": "papers/C2_fl_poisoning_attacks/wang2020tails_2007.05084.pdf",
+    "source": "https://arxiv.org/pdf/2007.05084",
+    "bytes": 3611937,
+    "pages": 28,
+    "sha256": "88f81d41e731455c05830c84a9f1259d8491f9d90d0f81fd9d0fe174f4bc7b51"
+  },
+  "zhang2022neurotoxin": {
+    "path": "papers/C2_fl_poisoning_attacks/zhang2022neurotoxin_2206.10341.pdf",
+    "source": "https://arxiv.org/pdf/2206.10341",
+    "bytes": 1324860,
+    "pages": 18,
+    "sha256": "d5b94305013a2d0987903d9a9ce12efe844c7e6c79be25f012dd9c494fed5848"
+  },
+  "blanchard2017krum": {
+    "path": "papers/C3_fl_robust_defenses/blanchard2017krum_1703.02757.pdf",
+    "source": "https://arxiv.org/pdf/1703.02757",
+    "bytes": 232101,
+    "pages": 16,
+    "sha256": "13e97bb4d4b9e3fa5fb4eae06de0c176afefc7b30076e4085c2202bda2d1a0e4"
+  },
+  "yin2018median": {
+    "path": "papers/C3_fl_robust_defenses/yin2018median_1803.01498.pdf",
+    "source": "https://arxiv.org/pdf/1803.01498",
+    "bytes": 900175,
+    "pages": 33,
+    "sha256": "bbda1a7c0a5fb78cd62e96a8e9cf5a7d7d88d4b9e7e11bfd84b595d430a1df0a"
+  },
+  "fung2018foolsgold": {
+    "path": "papers/C3_fl_robust_defenses/fung2018foolsgold_1808.04866.pdf",
+    "source": "https://arxiv.org/pdf/1808.04866",
+    "bytes": 1034479,
+    "pages": 16,
+    "sha256": "f0fa583381236963f6c0086d2f249962490147c061be6645d3be5f11e4f6295b"
+  },
+  "sun2019clipping": {
+    "path": "papers/C3_fl_robust_defenses/sun2019clipping_1911.07963.pdf",
+    "source": "https://arxiv.org/pdf/1911.07963",
+    "bytes": 699273,
+    "pages": 10,
+    "sha256": "4c94cef56d732bcdc9e29b7e622875a9263676a833352ef12cd26a51cc5833a9"
+  },
+  "zhang2022fldetector": {
+    "path": "papers/C3_fl_robust_defenses/zhang2022fldetector_2207.09209.pdf",
+    "source": "existing",
+    "bytes": 1018336,
+    "pages": 11,
+    "sha256": "2755a823bb335e8235359f128bc4998e2a5862c67ce95a1bf4f3026a5369c3b9"
+  },
+  "li2022lomar": {
+    "path": "papers/C3_fl_robust_defenses/li2022lomar_2201.02873.pdf",
+    "source": "https://arxiv.org/pdf/2201.02873",
+    "bytes": 1050170,
+    "pages": 16,
+    "sha256": "99cfc08d280287a68723d68958e083cfea8601d1da37b26967febf21af7b0e40"
+  },
+  "fereidooni2024freqfed": {
+    "path": "papers/C3_fl_robust_defenses/fereidooni2024freqfed_2312.04432.pdf",
+    "source": "existing",
+    "bytes": 913864,
+    "pages": 16,
+    "sha256": "519f7090f41e66e81d0e5493ae79aba536755297747b2548cc8de637c04bd01f"
+  },
+  "carlini2023webscale": {
+    "path": "papers/C4_llm_pretrain_poisoning/carlini2023webscale_2302.10149.pdf",
+    "source": "https://arxiv.org/pdf/2302.10149",
+    "bytes": 1655260,
+    "pages": 19,
+    "sha256": "d5d10c5a589fe8a700d5af873db705e0d66066c2c7f5155a52894ed17220a4f8"
+  },
+  "zhang2024persistent": {
+    "path": "papers/C4_llm_pretrain_poisoning/zhang2024persistent_2410.13722.pdf",
+    "source": "https://arxiv.org/pdf/2410.13722",
+    "bytes": 950345,
+    "pages": 17,
+    "sha256": "d3196f0062b6e5fac15b39fd89098ff1fd6396a52279f2d502b833a63d37537e"
+  },
+  "souly2025constant": {
+    "path": "papers/C4_llm_pretrain_poisoning/souly2025constant_2510.07192.pdf",
+    "source": "https://arxiv.org/pdf/2510.07192",
+    "bytes": 1688317,
+    "pages": 30,
+    "sha256": "8b8c5e05deedff10c93be7d49555d9c41028e18bc902dad428da759ad3358f5a"
+  },
+  "hubinger2024sleeper": {
+    "path": "papers/C4_llm_pretrain_poisoning/hubinger2024sleeper_2401.05566.pdf",
+    "source": "https://arxiv.org/pdf/2401.05566",
+    "bytes": 3696766,
+    "pages": 71,
+    "sha256": "988e62785a47533775a543c78415dd0994341987f3124d57a81f46c931227bed"
+  },
+  "wan2023instruction": {
+    "path": "papers/C5_llm_sft_poisoning/wan2023instruction_2305.00944.pdf",
+    "source": "https://arxiv.org/pdf/2305.00944",
+    "bytes": 643835,
+    "pages": 13,
+    "sha256": "3cca8d55f88df327b7734a370e5f898ec2e26138327cc33bcaf2bcf66ff3d60e"
+  },
+  "shu2023autopoison": {
+    "path": "papers/C5_llm_sft_poisoning/shu2023autopoison_2306.17194.pdf",
+    "source": "https://arxiv.org/pdf/2306.17194",
+    "bytes": 939860,
+    "pages": 21,
+    "sha256": "9ea0fcb328e32d2bcfbf3ec19691911fd257b10151addcc2377537a8f3a962b9"
+  },
+  "yan2023vpi": {
+    "path": "papers/C5_llm_sft_poisoning/yan2023vpi_2307.16888.pdf",
+    "source": "https://arxiv.org/pdf/2307.16888",
+    "bytes": 811634,
+    "pages": 22,
+    "sha256": "d218d9577a00e41a13bb8181184eb50a94a0eecb250275d16bc4b03e84204fa9"
+  },
+  "xu2023instructionsbackdoor": {
+    "path": "papers/C5_llm_sft_poisoning/xu2023instructionsbackdoor_2305.14710.pdf",
+    "source": "https://arxiv.org/pdf/2305.14710",
+    "bytes": 4204075,
+    "pages": 16,
+    "sha256": "28b87edcc5c944cecc77e872ef0e72a44890390ef8e23fd006369b0ebcac72de"
+  },
+  "qi2023finetuning": {
+    "path": "papers/C5_llm_sft_poisoning/qi2023finetuning_2310.03693.pdf",
+    "source": "https://arxiv.org/pdf/2310.03693",
+    "bytes": 5031019,
+    "pages": 45,
+    "sha256": "252e77d3e7b7f340c5eedabcb4c946f05c3218d14b7638fa22b01569f8bda3d4"
+  },
+  "yang2023shadow": {
+    "path": "papers/C5_llm_sft_poisoning/yang2023shadow_2310.02949.pdf",
+    "source": "https://arxiv.org/pdf/2310.02949",
+    "bytes": 1238678,
+    "pages": 18,
+    "sha256": "04213bceb82ae7182c0d56bd6f213df627f98ad930f1c86303bff5b0b1072a95"
+  },
+  "he2024safedata": {
+    "path": "papers/C5_llm_sft_poisoning/he2024safedata_2404.01099.pdf",
+    "source": "existing",
+    "bytes": 1328916,
+    "pages": 26,
+    "sha256": "9da86d4b638f93c6e9b90e27619391f3857c3eef1ac177ba1b0ebf0922f88df8"
+  },
+  "halawi2024covert": {
+    "path": "papers/C5_llm_sft_poisoning/halawi2024covert_2406.20053.pdf",
+    "source": "https://arxiv.org/pdf/2406.20053",
+    "bytes": 470387,
+    "pages": 22,
+    "sha256": "1c1e05eef4306a528dd2f0704a248170ac091457f93af90a041e1ff5f8750b9e"
+  },
+  "li2024backdoorllm": {
+    "path": "papers/C5_llm_sft_poisoning/li2024backdoorllm_2408.12798.pdf",
+    "source": "https://arxiv.org/pdf/2408.12798",
+    "bytes": 1227042,
+    "pages": 22,
+    "sha256": "2de3cd4dea6a5c90ad0dda0d0ad85a90756a9ec523c4b4a6d8b5fb6d34fe9b15"
+  },
+  "qi2021hiddenkiller": {
+    "path": "papers/C5_llm_sft_poisoning/qi2021hiddenkiller_2105.12400.pdf",
+    "source": "https://arxiv.org/pdf/2105.12400",
+    "bytes": 376462,
+    "pages": 11,
+    "sha256": "f85bb8958bdf53c27e29438f43fc6080c3ab83e061999ab49077ccda7b9d6731"
+  },
+  "qi2021stylebkd": {
+    "path": "papers/C5_llm_sft_poisoning/qi2021stylebkd_2110.07139.pdf",
+    "source": "https://arxiv.org/pdf/2110.07139",
+    "bytes": 691537,
+    "pages": 12,
+    "sha256": "f51c3ba98867875fefe8288695cc0d339d1ceb1c7b8059b3e532a1585771fbcd"
+  },
+  "betley2025emergent": {
+    "path": "papers/C5_llm_sft_poisoning/betley2025emergent_2502.17424.pdf",
+    "source": "https://arxiv.org/pdf/2502.17424",
+    "bytes": 8672157,
+    "pages": 41,
+    "sha256": "25f061a0e28ecd9c64c7b62de229c019a68af33757b34208d74d7a92645df42b"
+  },
+  "harmlessinputs2025": {
+    "path": "papers/C5_llm_sft_poisoning/harmlessinputs2025_2505.17601.pdf",
+    "source": "https://arxiv.org/pdf/2505.17601",
+    "bytes": 5329481,
+    "pages": 22,
+    "sha256": "3aa82a6255b888838b4fc1bc06d561439db12d0af978adba9dd1fbae8d66cebe"
+  },
+  "rando2023universal": {
+    "path": "papers/C6_llm_preference_poisoning/rando2023universal_2311.14455.pdf",
+    "source": "https://arxiv.org/pdf/2311.14455",
+    "bytes": 2566251,
+    "pages": 28,
+    "sha256": "5ec6e43dc9a1b806ae9d8cbcdb7da598c22fc5ea3dbc3b999a4f01ade43dce76"
+  },
+  "baumgartner2024venom": {
+    "path": "papers/C6_llm_preference_poisoning/baumgartner2024venom_2404.05530.pdf",
+    "source": "https://arxiv.org/pdf/2404.05530",
+    "bytes": 4356254,
+    "pages": 39,
+    "sha256": "5a10e1c0a41f5b8d428778f0c4c82e8390a829c5dba11cdaba99205b1f717672"
+  },
+  "wang2023rlhfpoison": {
+    "path": "papers/C6_llm_preference_poisoning/wang2023rlhfpoison_2311.09641.pdf",
+    "source": "https://arxiv.org/pdf/2311.09641",
+    "bytes": 1248232,
+    "pages": 20,
+    "sha256": "291aaa2658a30e423de018686c9a5bf3b31dfcb18396a3c760f1f6cf43ca33d5"
+  },
+  "pathmanathan2024dpo": {
+    "path": "papers/C6_llm_preference_poisoning/pathmanathan2024dpo_2406.12091.pdf",
+    "source": "https://arxiv.org/pdf/2406.12091",
+    "bytes": 1453924,
+    "pages": 19,
+    "sha256": "a2934ceacc591a32a68f9d2f0a0c9e5ab54303562fd65d8c0285cb91a2ffc643"
+  },
+  "fu2024poisonbench": {
+    "path": "papers/C6_llm_preference_poisoning/fu2024poisonbench_2410.08811.pdf",
+    "source": "https://arxiv.org/pdf/2410.08811",
+    "bytes": 1092742,
+    "pages": 26,
+    "sha256": "28e414564bc92820d1dd0d9196be9cfb50a6c038e625461afd741444e09d0fb7"
+  },
+  "huang2024vaccine": {
+    "path": "papers/C7_harmful_ft_defenses/huang2024vaccine_2402.01109.pdf",
+    "source": "https://arxiv.org/pdf/2402.01109",
+    "bytes": 1516205,
+    "pages": 31,
+    "sha256": "ed665b3b0fa16b8185ad87fc6cf2362217197070723a4c794b74186e5e859b97"
+  },
+  "huang2024booster": {
+    "path": "papers/C7_harmful_ft_defenses/huang2024booster_2409.01586.pdf",
+    "source": "https://arxiv.org/pdf/2409.01586",
+    "bytes": 1179945,
+    "pages": 24,
+    "sha256": "0ec55e2cb6b24043f387010431c23a3fa5964c598ead9d0f7a619ab990c6ab8a"
+  },
+  "rosati2024repnoise": {
+    "path": "papers/C7_harmful_ft_defenses/rosati2024repnoise_2405.14577.pdf",
+    "source": "https://arxiv.org/pdf/2405.14577",
+    "bytes": 956264,
+    "pages": 41,
+    "sha256": "fb968c9f91c0a8b56710994b49130e2eb1f28ac6b5537218079a0bf1a46d3cdd"
+  },
+  "tamirisa2024tar": {
+    "path": "papers/C7_harmful_ft_defenses/tamirisa2024tar_2408.00761.pdf",
+    "source": "https://arxiv.org/pdf/2408.00761",
+    "bytes": 1251158,
+    "pages": 27,
+    "sha256": "993780d313b411687142ec38684fe7c402015f83dba2744ab333c0426ac22a06"
+  },
+  "huang2024lisa": {
+    "path": "papers/C7_harmful_ft_defenses/huang2024lisa_2405.18641.pdf",
+    "source": "https://arxiv.org/pdf/2405.18641",
+    "bytes": 2159560,
+    "pages": 35,
+    "sha256": "7a152c4a68f6effcb85476c1127589fc0f537369143f8fa0f2ca05a15199b815"
+  },
+  "bianchi2023safetytuned": {
+    "path": "papers/C7_harmful_ft_defenses/bianchi2023safetytuned_2309.07875.pdf",
+    "source": "https://arxiv.org/pdf/2309.07875",
+    "bytes": 1310177,
+    "pages": 21,
+    "sha256": "39d1656648072281dbd27fe90f5a03236a78bb3d2cf818bcb1476020aea12986"
+  },
+  "wang2024bea": {
+    "path": "papers/C7_harmful_ft_defenses/wang2024bea_2402.14968.pdf",
+    "source": "https://arxiv.org/pdf/2402.14968",
+    "bytes": 1337928,
+    "pages": 27,
+    "sha256": "68ff17d9d1ec58032b9becabc40b2d7d176c16db013bf294fd8a3a90911e44b3"
+  },
+  "shen2024seal": {
+    "path": "papers/C7_harmful_ft_defenses/shen2024seal_2410.07471.pdf",
+    "source": "https://arxiv.org/pdf/2410.07471",
+    "bytes": 1050529,
+    "pages": 22,
+    "sha256": "95ad9c09dc08dc00472d9a91882f043ee710572c96a1c8b421978d5f9cd2cefa"
+  },
+  "hsu2024safelora": {
+    "path": "papers/C7_harmful_ft_defenses/hsu2024safelora_2405.16833.pdf",
+    "source": "https://arxiv.org/pdf/2405.16833",
+    "bytes": 671840,
+    "pages": 23,
+    "sha256": "ab6e572a9db26f5534b2dc3a9333984436fac82c3f33d19ae190d9572bfbc55e"
+  },
+  "huang2024antidote": {
+    "path": "papers/C7_harmful_ft_defenses/huang2024antidote_2408.09600.pdf",
+    "source": "https://arxiv.org/pdf/2408.09600",
+    "bytes": 1602554,
+    "pages": 16,
+    "sha256": "e37a696f6dc38ac89fab5d904a5a6ab7f3dc4833857dee22dd25fe0cdbc87594"
+  },
+  "inan2023llamaguard": {
+    "path": "papers/C7_harmful_ft_defenses/inan2023llamaguard_2312.06674.pdf",
+    "source": "https://arxiv.org/pdf/2312.06674",
+    "bytes": 1012622,
+    "pages": 15,
+    "sha256": "fc5a3690f3a7771d7c429b6deb73e9e95ac4aa879fce490563c5eeb4f7ad2f33"
+  },
+  "li2024saladbench": {
+    "path": "papers/C7_harmful_ft_defenses/li2024saladbench_2402.05044.pdf",
+    "source": "https://arxiv.org/pdf/2402.05044",
+    "bytes": 5941417,
+    "pages": 32,
+    "sha256": "1a5e0c392676756d5e5d3de0e9a2eec63a4cb1ee1f94fa318ca82fe041d2bca2"
+  },
+  "tran2018spectral": {
+    "path": "papers/C8_sample_level_detection/tran2018spectral_1811.00636.pdf",
+    "source": "https://arxiv.org/pdf/1811.00636",
+    "bytes": 546231,
+    "pages": 16,
+    "sha256": "c5d31a08100b624cfdda038b88878e0aad590368c365dcd5aaa61de2d13893c4"
+  },
+  "chen2018activation": {
+    "path": "papers/C8_sample_level_detection/chen2018activation_1811.03728.pdf",
+    "source": "https://arxiv.org/pdf/1811.03728",
+    "bytes": 3040627,
+    "pages": 10,
+    "sha256": "44d17e759fa28bf70118a15fcb36653b58e32ca14c016607c0fe233472af17e6"
+  },
+  "qi2021onion": {
+    "path": "papers/C8_sample_level_detection/qi2021onion_2011.10369.pdf",
+    "source": "https://arxiv.org/pdf/2011.10369",
+    "bytes": 334828,
+    "pages": 9,
+    "sha256": "d38a6367e77b4a49870a14fae5df58ae2d1fe953a048392a531ba37e1e0d0fca"
+  },
+  "gao2019strip": {
+    "path": "papers/C8_sample_level_detection/gao2019strip_1902.06531.pdf",
+    "source": "https://arxiv.org/pdf/1902.06531",
+    "bytes": 1333713,
+    "pages": 13,
+    "sha256": "8b94161a6de1b8ce5e612831171e73195228063fe3a9300044c057d32ecc2e46"
+  },
+  "cui2022openbackdoor": {
+    "path": "papers/C8_sample_level_detection/cui2022openbackdoor_2206.08514.pdf",
+    "source": "https://arxiv.org/pdf/2206.08514",
+    "bytes": 1115511,
+    "pages": 23,
+    "sha256": "69c6f48e68133620d30fb250a0f79b5060987005ab16b3a8817c8a742eeac37a"
+  },
+  "xie2024gradsafe": {
+    "path": "papers/C8_sample_level_detection/xie2024gradsafe_2402.13494.pdf",
+    "source": "https://arxiv.org/pdf/2402.13494",
+    "bytes": 532947,
+    "pages": 12,
+    "sha256": "016435ff0e5fe379caf67c78f4bfeb6e43fd1cccbee9d52d87487e593a8f9a7c"
+  },
+  "xia2024less": {
+    "path": "papers/C8_sample_level_detection/xia2024less_2402.04333.pdf",
+    "source": "https://arxiv.org/pdf/2402.04333",
+    "bytes": 1479846,
+    "pages": 29,
+    "sha256": "ef06fcf400ee4660cd6eed3ba8d74cfea0debfbc88f25aaafcb14f3bf3101aa0"
+  },
+  "gradsentry2026": {
+    "path": "papers/C8_sample_level_detection/gradsentry2026_2605.26574.pdf",
+    "source": "https://arxiv.org/pdf/2605.26574",
+    "bytes": 2949469,
+    "pages": 22,
+    "sha256": "a283242b2c678e15402fbe378262052c331a3ff414af747bbc2a41067a8d39d9"
+  },
+  "ye2024emerging": {
+    "path": "papers/C9_fedllm_attack_defense/ye2024emerging_2406.10630.pdf",
+    "source": "workspace:ICLR-2025-emerging-safety-attack-and-defense-in-federated-instruction-tuning-of-large-language-models-Paper-Conference.pdf",
+    "bytes": 1547291,
+    "pages": 19,
+    "sha256": "372652b732f9d81f30814c805bf4bb7213917f9772b4a8255947f7c3e69f2f2c"
+  },
+  "protegofed2026": {
+    "path": "papers/C9_fedllm_attack_defense/protegofed2026_2603.00516.pdf",
+    "source": "workspace:2603.00516v1.pdf",
+    "bytes": 5729626,
+    "pages": 18,
+    "sha256": "e9e1d1800839a4f1bc7655bf357335fe6f658e157207c585ab1f7514ac4d1249"
+  },
+  "safefedllm2026": {
+    "path": "papers/C9_fedllm_attack_defense/safefedllm2026_2601.07177.pdf",
+    "source": "existing",
+    "bytes": 2397692,
+    "pages": 17,
+    "sha256": "539daafdf3c949cb644b4e21d34231b150d8a72558b07ff2180c747928d215f0"
+  },
+  "signalagg2026": {
+    "path": "papers/C9_fedllm_attack_defense/signalagg2026_2602.15671.pdf",
+    "source": "existing",
+    "bytes": 464943,
+    "pages": 5,
+    "sha256": "7c6f003b1aafb2cdb686f25a7d50516bdf4bdc5e576e659555106e0cd6d1a7c0"
+  },
+  "li2024peftattack": {
+    "path": "papers/C9_fedllm_attack_defense/li2024peftattack_2411.19335.pdf",
+    "source": "https://arxiv.org/pdf/2411.19335",
+    "bytes": 1355477,
+    "pages": 12,
+    "sha256": "3707276a1d51e215b924b365365fee7d19aa16af4c44016f0f633396f9e8a3e3"
+  },
+  "graphmanip2026": {
+    "path": "papers/C9_fedllm_attack_defense/graphmanip2026_2605.07961.pdf",
+    "source": "https://arxiv.org/pdf/2605.07961",
+    "bytes": 10700093,
+    "pages": 13,
+    "sha256": "e757a67e9cc893935aaa2930553772f65bfcdaaf4da9d299f3ffb5cf62bb6ee8"
+  },
+  "tokenlora2026": {
+    "path": "papers/C9_fedllm_attack_defense/tokenlora2026_2605.30189.pdf",
+    "source": "https://arxiv.org/pdf/2605.30189",
+    "bytes": 580383,
+    "pages": 45,
+    "sha256": "25d73d3781990e6a4de09d71b08d3788e21876133deda751e2e58e583c8120a3"
+  },
+  "fedllmprivacy2025": {
+    "path": "papers/C9_fedllm_attack_defense/fedllmprivacy2025_2509.20680.pdf",
+    "source": "https://arxiv.org/pdf/2509.20680",
+    "bytes": 2937293,
+    "pages": 28,
+    "sha256": "dffb73de1e09b76ae250e15b2a80bf717035bb8ea3baef1d4312d861fac7ba69"
+  },
+  "liu2024loratk": {
+    "path": "papers/C10_lora_supplychain_privacy/liu2024loratk_2403.00108.pdf",
+    "source": "https://arxiv.org/pdf/2403.00108",
+    "bytes": 731209,
+    "pages": 34,
+    "sha256": "c063240cf721cc6f54365d96801af4670bbe799cfad2becd21263ce28eefd4d2"
+  },
+  "dong2024trojanplugin": {
+    "path": "papers/C10_lora_supplychain_privacy/dong2024trojanplugin_2312.00374.pdf",
+    "source": "https://arxiv.org/pdf/2312.00374",
+    "bytes": 2128411,
+    "pages": 18,
+    "sha256": "5759f141673bea063a46c5b16ba9d89b6a5cf98b89a83dafdc219146ebc1b852"
+  },
+  "balunovic2022lamp": {
+    "path": "papers/C10_lora_supplychain_privacy/balunovic2022lamp_2202.08827.pdf",
+    "source": "https://arxiv.org/pdf/2202.08827",
+    "bytes": 518037,
+    "pages": 18,
+    "sha256": "d4bacaa48d8aadf6be323415d0992dba1ddb4cb793cda8dc1b3cc671ca10da2c"
+  },
+  "rethinklora2026": {
+    "path": "papers/C10_lora_supplychain_privacy/rethinklora2026_2602.19926.pdf",
+    "source": "https://arxiv.org/pdf/2602.19926",
+    "bytes": 3069795,
+    "pages": 36,
+    "sha256": "48c13f101c0cd5a91eb211ac20d434dc1e19fc84880276efeebf3c64b11fd4ec"
+  },
+  "gupta2022film": {
+    "path": "papers/C10_lora_supplychain_privacy/gupta2022film_2205.08514.pdf",
+    "source": "https://arxiv.org/pdf/2205.08514",
+    "bytes": 1055526,
+    "pages": 20,
+    "sha256": "ede91ce455b1c8b41de22d7e36791a0f3bd776507bbf23ca80379044cd355c92"
+  },
+  "persistcontinual2025": {
+    "path": "papers/C4_llm_pretrain_poisoning/persistcontinual2025_2512.14741.pdf",
+    "source": "https://arxiv.org/pdf/2512.14741",
+    "bytes": 505680,
+    "pages": 10,
+    "sha256": "d2c901fa1ffdba92b185539a6f8b5f0c82bd54c8f3d38d18b7d01fd356da4418"
+  },
+  "prefpoison2026": {
+    "path": "papers/C6_llm_preference_poisoning/prefpoison2026_2605.02495.pdf",
+    "source": "https://arxiv.org/pdf/2605.02495",
+    "bytes": 2229704,
+    "pages": 30,
+    "sha256": "d331582e5999d3c13ad34a0b51fa31297177b08510659596ab3385009dba2d82"
+  },
+  "adversarialrlhf2025": {
+    "path": "papers/C6_llm_preference_poisoning/adversarialrlhf2025_2503.03039.pdf",
+    "source": "https://arxiv.org/pdf/2503.03039",
+    "bytes": 1080224,
+    "pages": 18,
+    "sha256": "9d247d944682dce5fa17a25c599bea86fdcb54f72f34583d7f559bb53d483356"
+  },
+  "great2025": {
+    "path": "papers/C6_llm_preference_poisoning/great2025_2510.09260.pdf",
+    "source": "https://arxiv.org/pdf/2510.09260",
+    "bytes": 3793149,
+    "pages": 32,
+    "sha256": "11b150171f272951b3594c2bf4cc990b3bc90fae349ec541e85f6f471e978cb6"
+  },
+  "sheng2022backdoornlp": {
+    "path": "papers/C0_survey_taxonomy/sheng2022backdoornlp_2211.11958.pdf",
+    "source": "https://arxiv.org/pdf/2211.11958",
+    "bytes": 428585,
+    "pages": 12,
+    "sha256": "8bcb90d223446e19ec8b6a69c649b8eba9ebd5c3a3b05c4afd99d7b1f1e79fde"
+  },
+  "sun2024thesis": {
+    "path": "papers/C2_fl_poisoning_attacks/sun2024thesis.pdf",
+    "source": "workspace:生成式模型在联邦学习安全中的应用研究.pdf",
+    "bytes": 5562880,
+    "pages": 104,
+    "sha256": "b5e9f94e490f1d0b5bad95ed75b6408ded7fb617b309394e356c0bd84f33ea4e"
+  },
+  "li2026thesis": {
+    "path": "papers/C2_fl_poisoning_attacks/li2026thesis.pdf",
+    "source": "workspace:基于混合专家模型的联邦学习隐蔽攻击方法研究.pdf",
+    "bytes": 2959767,
+    "pages": 80,
+    "sha256": "0ceae2d8c81b3a69bab9e9dd96597c9e28cddc44f2dc7c7457be3aa6afdcccdf"
+  },
+  "cao2020fltrust": {
+    "path": "papers/C3_fl_robust_defenses/cao2020fltrust_2012.13995.pdf",
+    "source": "https://arxiv.org/pdf/2012.13995",
+    "bytes": 927214,
+    "pages": 18,
+    "sha256": "5b4efd6b3ccdb5e9f97880f76291b5670bb7258b5fe7590914aea88397a93217"
+  },
+  "nguyen2022flame": {
+    "path": "papers/C3_fl_robust_defenses/nguyen2022flame_2101.02281.pdf",
+    "source": "https://arxiv.org/pdf/2101.02281",
+    "bytes": 872175,
+    "pages": 20,
+    "sha256": "196692594f1b3ec88240bc300defefb975a4365a6c9d3dbf0fbbf5d5eabe0a66"
+  },
+  "rieger2022deepsight": {
+    "path": "papers/C3_fl_robust_defenses/rieger2022deepsight_2201.00763.pdf",
+    "source": "https://arxiv.org/pdf/2201.00763",
+    "bytes": 794336,
+    "pages": 18,
+    "sha256": "f78e4eb878ff11c3b5dd4c39c11c8168f071ca9fb4ec3e196013b03862df04be"
+  },
+  "shejwalkar2021manipulating": {
+    "path": "papers/C2_fl_poisoning_attacks/shejwalkar2021manipulating.pdf",
+    "source": "https://www.ndss-symposium.org/wp-content/uploads/ndss2021_6C-3_24498_paper.pdf",
+    "bytes": 727038,
+    "pages": 18,
+    "sha256": "e472d79bc5351a5481b6b8496e17281a8c8703417d9645f2a6eb7f8647b1230c"
+  }
+}

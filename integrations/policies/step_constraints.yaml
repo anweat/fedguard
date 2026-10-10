@@ -1,0 +1,10 @@
+# Constraints on the local optimizer step that need the trainer extension layer (CLIENT_LOSS). A run with
+# this policy is NOT the host's original training step: the layer has to be switched on by the entry
+# point as well, and the record says so.
+# The caller supplies the resource `alignment_batches` (batches of trusted alignment data).
+policy: 1
+client:
+  fail: closed
+  controls:
+    - {use: lisa, args: {rho: 1.0, k_align: 1, k_finetune: 2}, enforce: true}
+extensions: [trainer]

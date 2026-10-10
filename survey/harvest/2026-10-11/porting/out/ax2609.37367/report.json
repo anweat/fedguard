@@ -1,0 +1,236 @@
+{
+ "key": "ax2609.37367",
+ "verdict": "partial",
+ "plugins": [
+  {
+   "name": "chorus",
+   "class": "Chorus",
+   "side": "server",
+   "stages": [
+    "server_receive",
+    "server_aggregate"
+   ],
+   "needs": [
+    "uploads",
+    "model_handle"
+   ],
+   "resources": [
+    "probe_pool",
+    "trigger_words",
+    "refusal_phrases"
+   ],
+   "acts": [
+    "select_and_weight"
+   ]
+  }
+ ],
+ "steps_total": 17,
+ "steps_ported": 12,
+ "steps_outside": 3,
+ "ops_used": [
+  "fedguard.ops.sampling.subsample",
+  "fedguard.ops.text.split_words"
+ ],
+ "new_helpers": [
+  {
+   "name": "insert_trigger",
+   "lines": 7,
+   "generic": true,
+   "what": "INSERTTRIGGER of Algorithm 2: insert a word between two words of an instruction at a uniformly drawn boundary"
+  },
+  {
+   "name": "refusal_rate",
+   "lines": 6,
+   "generic": false,
+   "what": "Stage 1a score: fraction of generated answers containing one of the refusal phrases as a lower-cased substring"
+  },
+  {
+   "name": "majority_reject",
+   "lines": 3,
+   "generic": true,
+   "what": "Algorithm 3: strict majority of a pooled score list above eta, a tie accepting"
+  },
+  {
+   "name": "span_counts",
+   "lines": 15,
+   "generic": true,
+   "what": "Algorithm 4: count, per contiguous word span of a fixed minimum length, in how many generations of the buffer it occurs (a generation counts once per span)"
+  },
+  {
+   "name": "pruned_spans",
+   "lines": 18,
+   "generic": true,
+   "what": "Algorithm 4: keep the most frequent and longest spans, one representative per nested family, up to kappa a round"
+  },
+  {
+   "name": "candidates_of",
+   "lines": 12,
+   "generic": false,
+   "what": "Algorithm 5: the K-1 most frequent strings plus the longest string y^max, ties by length then lexicographic"
+  },
+  {
+   "name": "demo_block",
+   "lines": 3,
+   "generic": false,
+   "what": "one instruction/response block of the ICLSCAN-style prompt template"
+  },
+  {
+   "name": "render",
+   "lines": 5,
+   "generic": false,
+   "what": "assemble a prompt from two ordinary demonstrations, the third one triggered or not, and the triggered query"
+  },
+  {
+   "name": "context_gain",
+   "lines": 7,
+   "generic": false,
+   "what": "Delta_i(theta, y) of Algorithm 5: mean gain in per-token log-probability of y when y is demonstrated in the context, over a batch of prompt pairs"
+  },
+  {
+   "name": "reason",
+   "lines": 6,
+   "generic": false,
+   "what": "human-readable flag for a client kept out of the aggregation"
+  }
+ ],
+ "missing_ops": [
+  {
+   "name": "word_span_counts",
+   "what": "enumerate the contiguous word spans of a buffer of texts and count in how many texts each occurs (Algorithm 4); fedguard.ops.text only splits words and does leave-one-out, nothing counts spans over a corpus"
+  },
+  {
+   "name": "nested_span_prune",
+   "what": "greedy selection of the most frequent/longest spans with a single representative per nested family (Algorithm 4); no operator does containment-based redundancy pruning"
+  },
+  {
+   "name": "strict_majority",
+   "what": "Algorithm 3's pooled vote with the tie accepting; three lines, written in the plugin file"
+  },
+  {
+   "name": "context_gain",
+   "what": "the movability score of Algorithm 5 (per-token log-probability of a target under two contexts); it composes ModelHandle.logprob, which exists, but nothing in ops covers it because ops are model-free"
+  }
+ ],
+ "extraction_needs": [
+  {
+   "data": "the LoRA adapter each neighbour sent this round (theta^(t+1/2)_j)",
+   "where": "server, SERVER_RECEIVE, as the uploads arrive",
+   "provided": "yes",
+   "via": "ctx.uploads.clients / ctx.uploads.state(cid) (also factors(cid, module) and increment(cid, module) for the factor view; this method never needs factor space)"
+  },
+  {
+   "data": "the receiver's own adapter theta_i, the trusted reference both tests compare against",
+   "where": "client, CLIENT_POST_TRAIN of the same round (local_update) in the paper; there is no server-side equivalent",
+   "provided": "partly",
+   "via": "no kind carries a server-side own adapter; the port uses ctx.uploads.base_state() (the broadcast global every upload started from). A client-side screening of the peers' adapters is not reachable either: no client stage sees another client's adapter"
+  },
+  {
+   "data": "a runnable model to load an arbitrary LoRA into, generate text from it and score log-probabilities",
+   "where": "server, SERVER_RECEIVE (any stage that needs a model)",
+   "provided": "partly",
+   "via": "ctx.model_handle (ModelHandle.lora(state) / generate(prompts, max_new_tokens) / logprob(prompts, targets)); the host gives the server no model by default, so the deployment must pass probe= to OpenFedLLMGuard/GuardStrategy and the shipped HFProbe only implements ProbeView.score"
+  },
+  {
+   "data": "the P fixed Stage 1a probe prompts: the node's held-out probe pool, the trigger word tau_i and the trigger insertion",
+   "where": "outside training for the pool itself (160 instruction-response pairs, never shared); assembled in the plugin at the first round and frozen in ctx.state",
+   "provided": "yes",
+   "via": "resources probe_pool and trigger_words read with ctx.resource(), drawn with ctx.rng (no global random state); sampling.subsample for the three demonstrations and ctx.rng.permutation for the shared order. The paper's split of the node's own data into train/probe is outside the plugin (rule 3)"
+  },
+  {
+   "data": "the refusal phrase table (18 lower-cased substrings of Appendix C, ICLSCAN's minus \"as an AI\") and the two fixed template answers y_ref and y_c",
+   "where": "outside training: a constant of the method",
+   "provided": "partly",
+   "via": "resource refusal_phrases; y_ref and y_c are constants in the plugin file because the paper prints them verbatim. The paper's text lists only 3 of the 18 phrases, so the table has to come from the authors' release"
+  },
+  {
+   "data": "generated answers of one adapter on a batch of prompts (P probe answers, H harvest answers a round)",
+   "where": "server, SERVER_RECEIVE, inside the lora() context of that adapter",
+   "provided": "partly",
+   "via": "ModelHandle.generate(prompts, max_new_tokens); greedy only, so the Stage 1a nucleus sampling (temperature 0.9, top-p 0.9, top-k 50) and the Stage 1b beam search (width B, length penalty 1, early stopping, top beam only) cannot be asked for"
+  },
+  {
+   "data": "per-token log-probabilities of a candidate string under two contexts, for two different adapters, on identical prompts",
+   "where": "server, SERVER_RECEIVE",
+   "provided": "yes",
+   "via": "ModelHandle.logprob(prompts, targets) called inside handle.lora(state), with the same prompt list reused for theta_i and theta_j (Algorithm 5 line 15)"
+  },
+  {
+   "data": "the other receivers R_j of the same adapter, their probe scores s_(k->j) and their candidate-string tables C_(k->j), plus the distance-two neighbourhood of the communication graph",
+   "where": "between the receivers of one adapter, once per round, before the accept/reject decision (steps 8 and 11)",
+   "provided": "no",
+   "via": "nothing: in a star an upload has exactly one receiver, so R_j = {server} and there is no peer channel; the message channel (messages/attachments) runs client<->server only, and both of its mechanics (piggyback on the next broadcast, or CLIENT_ANNOUNCE + SERVER_EXCHANGE) are ordered against the training round, not between receivers of the same adapter"
+  },
+  {
+   "data": "the cross-round screening state: which neighbours are due, their consecutive rejections, the W_ej window, the W_re re-check timer, the harvest buffers and the cumulative string-count tables",
+   "where": "server, across rounds",
+   "provided": "yes",
+   "via": "ctx.state (private, shared between the two stages and kept across rounds) together with ctx.round; no other storage is needed"
+  },
+  {
+   "data": "the accept/reject outcome applied to this round's aggregation, equally weighted over the accepted adapters",
+   "where": "server, SERVER_AGGREGATE",
+   "provided": "yes",
+   "via": "Decision(weights={accepted: 1.0}, excluded=..., flags=...) through the select_and_weight action; the framework does the averaging, so the paper's 1/(|A|+1) rescaling is the framework's normalisation"
+  }
+ ],
+ "external_state": [
+  "the private held-out probe pool of the node (160 instruction-response pairs, demonstrations and queries, never shared) - here a server-side resource",
+  "the public trigger-word list (10000 words of 5 to 12 letters, released with the paper's code) from which tau_i is drawn once and kept for the whole run",
+  "the refusal phrase table of Appendix C (ICLSCAN's list minus \"as an AI\")",
+  "the two fixed template answers y_ref and y_c, and ICLSCAN's ICL prompt template that the paper defers to",
+  "the shared frozen base LLM and its tokenizer behind the server-side model handle (the paper uses LLAMA-2-7B-CHAT or QWEN3-8B), plus the compute to generate and score with it",
+  "the communication graph up to distance two and the channel to the co-receivers of an adapter - the paper's premise; in a star it does not exist",
+  "per-neighbour trust states, harvest buffers and count tables are the only state this port keeps, and they live inside ctx.state (no external store)"
+ ],
+ "missing_runtime": [
+  {
+   "what": "a second receiver of the same upload and a channel between receivers (the paper's distance-two knowledge, its honest-majority premise |View(i) cap H| > |View(i)|/2, and the EXCHANGESCORES / EXCHANGESTRINGS messages)",
+   "blocks": "steps 8 and 11 entirely, and with them the pooled sets V_j and C_j; step 9 (strict majority vote) can only run with |R_j| = 1, i.e. on the single score of the receiver, so the protection against one forged score or one mistaken receiver is not ported"
+  },
+  {
+   "what": "sampled decoding and beam search in the model handle (temperature/top-p/top-k nucleus sampling; beam width B with length penalty and early stopping, top beam only)",
+   "blocks": "step 7 runs greedily, which the paper measures as the weaker setting, and step 10 loses the harvest recall the paper attributes to beam search (51.6% vs 13.5% of prompts recovering the target)"
+  },
+  {
+   "what": "a server-side model by default: model_handle is mounted on the server only when the deployment passes probe=, and the shipped server handle (adapters/hf_probe.HFProbe) implements ProbeView.score only, not generate/logprob",
+   "blocks": "steps 7, 10 and 13 in every deployment that does not hand in a full ModelHandle; without one the plugin raises LookupError at the first upload"
+  },
+  {
+   "what": "an object for \"the node's own adapter of this round\" on the server side (theta_i)",
+   "blocks": "steps 13 and 14: the reference is the broadcast base (an average of previously accepted uploads) instead of a freshly trained clean adapter of the receiver, so the ratio compares a client against the global model, not against a peer's own model"
+  }
+ ],
+ "deviations": [
+  "The paper is decentralized (D-PSGD) and has no server. Node i is played by the server of a star, the adapters of its neighbours by the uploads of the round, and the acceptance is expressed as this round's aggregation (rejected clients excluded, accepted clients weighted equally); theta_i has no counterpart and is replaced by uploads.base_state().",
+  "The score exchange and the string exchange with the other receivers of an adapter, and the majority vote over their pooled scores, have no counterpart in a star: vote rule implemented, called with the single receiver score.",
+  "Stage 1a probes are generated greedily (no nucleus sampling) and the Stage 1b harvest is greedy (no beam search, no length penalty, no early stopping): the two decoding settings of Appendix C cannot be requested from ModelHandle.generate.",
+  "The probe pool is a server-side resource rather than a split of the node's local data, because `data` is a client-side kind and the pool is never shared anyway.",
+  "No LoRA-space substitution was needed: CHORUS works on generated text and log-probabilities, so this port never touches factor_delta or the update geometry of the classic server-side defenses.",
+  "The beam width B of Table 4 is not exposed as a parameter because nothing in the runtime can honour it; every other Table 4 hyperparameter is a default of __init__.",
+  "Acceptance is per round and per client (the framework has no per-edge mixing): the paper's asymmetric rejection, where i may drop j while j still merges i, becomes \"this client is not aggregated this round\"."
+ ],
+ "open_choices": [
+  "words are whitespace-separated (fedguard.ops.text.split_words); every span of at least w_min words is enumerated with no upper length bound (the paper gives neither the tokenization nor the enumeration range)",
+  "the trigger is inserted at a uniformly drawn word boundary of the third instruction and of the query; an instruction of fewer than two words gets the trigger appended",
+  "a generation counts once per span, however often the span occurs inside it",
+  "ties are broken by word count and then lexicographically, both for the candidate order and for y^max",
+  "the movability prompts are redrawn every round and shared by the two adapters within the round; the Stage 1a prompts are drawn once and frozen in ctx.state for the whole run",
+  "the harvest uses the first H of the round's drawn blocks, i.e. H fresh prompts a round (the paper redraws the harvest prompts each round but does not say whether they are the movability pairs)",
+  "with no candidate string (buffer too small, no span above r_min, everything filtered) the movability test rejects nothing",
+  "Delta_i(theta_i, y) is computed once per candidate and reused for the ratio and the phi filter (the paper does not say whether it is cached)",
+  "a candidate whose reference gain is not positive cannot reject (the phi filter keeps only candidates with gain >= phi * reference)",
+  "trust counter semantics: an accepted screening round resets the consecutive counter; the W_ej window holds screening rounds only and slides with the round index; SUSPECTED returns to TRUSTED once W_ej rounds pass without k_ej rejections; a rejected re-check leaves the neighbour EJECTED and restarts the W_re timer; a clean re-check returns only to SUSPECTED; the initial state is TRUSTED; an upload is screened in the round it first appears in",
+  "the reported features (screened, refusal_rate, reject_probe, reject_movability, reject, candidates, status, min_ratio) and the flag strings are this port's own",
+  "the ICL prompt template (### Instruction / ### Response blocks with the third demonstration carrying the trigger) stands in for ICLSCAN's format, which the paper does not restate"
+ ],
+ "needs_from_authors": [
+  "ICLSCAN's exact prompt format, which the paper says it reuses but does not reproduce (the whole probe and movability construction depends on it)",
+  "the complete list of the 18 refusal phrases (the text quotes 3) and whether anything beyond lower-casing (punctuation or Unicode normalisation) is applied",
+  "the trigger word list of Appendix C and the seed values for the probe pool, the prompt draws and the harvest draws (only the code release has them)",
+  "the span enumeration rule and the complete rule for the nested-family greedy when spans partially overlap rather than nest",
+  "whether Delta_i(theta_i, y) is cached across the candidates of one round",
+  "whether the Stage 1a probe prompts and the movability prompt pairs are the same P prompts, since Appendix A.2 fixes them only within a round"
+ ],
+ "confidence": "medium",
+ "confidence_reason": "The two behavioural tests, the harvest, the candidate selection, the movability filter and the trust state machine are implemented from the step list and exercised by a synthetic model stub, and the contract/static checks pass. But 2 of 17 steps (the cross-receiver exchanges, and with them the pooled vote and the pooled string tables) cannot be expressed in this runtime at all, both tests run under a weaker decoder than the paper's, and the trusted reference is the broadcast base rather than the node's own adapter; the paper also leaves the ICL template, the phrase list and the trust-counter semantics to its code release, so several behaviours are this port's choices rather than the paper's."
+}

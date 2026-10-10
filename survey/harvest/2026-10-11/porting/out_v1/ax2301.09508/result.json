@@ -1,0 +1,143 @@
+{
+ "key": "ax2301.09508",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 86853,
+    "outputTokens": 128779,
+    "cacheReadTokens": 3830784,
+    "cacheWriteTokens": 0,
+    "totalTokens": 4046416
+   },
+   "seconds": 550.3,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 85145,
+ "report": {
+  "key": "ax2301.09508",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "baybfed",
+    "class": "BayBFed",
+    "side": "server",
+    "stages": [
+     "server_aggregate",
+     "server_post_aggregate"
+    ],
+    "needs": [
+     "uploads",
+     "aggregate"
+    ],
+    "resources": [],
+    "acts": [
+     "select_and_weight"
+    ]
+   }
+  ],
+  "steps_total": 14,
+  "steps_ported": 13,
+  "steps_outside": 1,
+  "ops_used": [
+   "fedguard.ops.density.gaussian_kde",
+   "fedguard.ops.density.shannon_entropy",
+   "fedguard.ops.geometry.cosine_to"
+  ],
+  "new_helpers": [
+   {
+    "name": "normal_density",
+    "lines": 4,
+    "generic": true,
+    "what": "normal density at every entry of a vector; a one-point sample of ops.density.gaussian_kde is exactly that, so this is a wrapper over an existing operator, not new math"
+   },
+   {
+    "name": "jensen_shannon",
+    "lines": 11,
+    "generic": true,
+    "what": "JSD in nats with m = (p + q) / 2, built from ops.density.shannon_entropy via JSD = H(m) - (H(p) + H(q)) / 2; both operands must be normalized first (mixing unnormalized densities silently turns m into a mass-weighted mixture, which changed the scores by ~0.06 here), and a vector with no mass is read as uniform"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "fedguard.ops.density.jensen_shannon",
+    "what": "divergence between two non-negative vectors; written in the plugin file from shannon_entropy, so it did not block the port, but a second Jensen-divergence method would rewrite the same 11 lines"
+   },
+   {
+    "name": "fedguard.ops.density.normal_pdf",
+    "what": "Gaussian density at arbitrary points; reachable only as gaussian_kde with a one-point sample, wrapped here as normal_density"
+   }
+  ],
+  "missing_runtime": [],
+  "deviations": [
+   "W_i and G^{t-1} are factor-space quantities: W_i = uploads.factor_delta(i) and G^{t-1} = the previous round's aggregate update (flattened result - base, recorded at SERVER_POST_AGGREGATE), while the paper compares full local and global model weights; in the first round there is no previous aggregate, so the cosine shift of Eq. (2) and the measurement error of Eq. (3) are zero",
+   "mu_p and sigma_p are read off the broadcast LoRA adapter (the initial global adapter), not off a full model",
+   "the p distribution of Eq. (4) uses one shared base measure H^t per round although Eq. (1) defines a per-client H_i^t; the per-client posteriors are still maintained and reported, but the shared reading is what makes bit-identical Max_JD possible for identical poisoned updates, which the paper reports for NIDS",
+   "the plugin proposes equal aggregation weights (Appendix A assumes s_i = 1/n) so that a client cannot profit from lying about its data size; the aggregation itself stays with the host",
+   "the previous global update of Eqs. (2)-(3) is kept as plugin state, so the plugin mounts at SERVER_POST_AGGREGATE in addition to SERVER_AGGREGATE"
+  ],
+  "open_choices": [
+   "Alg. 2's two ifs are read as two keep conditions, deduplicated: keep a client whose Max_JD appears once, or whose Max_JD is below the round average; a client is removed only when its Max_JD equals another client's and is not below the average. The literal 'Max_i not in Max_JD_stored' is never true for a participant, and the alternative AND reading (unique AND below average) would remove about half of a benign round and would remove a lone client",
+   "cluster assignment takes the smallest divergence, while Max_JD is the largest divergence over the existing clusters and the virtual new one (the paper only says 'according to Max_JD' and argues that a large value belongs to a new cluster)",
+   "Eq. (3) is read as sigma_w = ||G - W|| * cos(G, W), since the paper writes sigma and sigma^2 for the same quantity",
+   "Eq. (4) step (iii) is read as the normal density of the current values with mean Wbar and unit standard deviation; the other reading divides by Wbar, which is near zero in factor space and collapses p",
+   "p and q are non-negative length-l vectors over the coordinates, normalized before the divergence, with m = (p + q) / 2 and natural logarithms; the paper does not say whether p and q are per-coordinate or joint, how many points p is evaluated on, or what m is",
+   "the virtual new cluster uses mu_0 = mu_p, sigma_0 = sigma_p and variance sigma_0^2 + sigma_w^2, so tau_0 = 1/sigma_0^2 (the paper gives no numbers)",
+   "tau_k = 1/sigma_cl^2, n_k grows by one per assignment, the first client of the first round founds the first cluster (n_k = 1, its own mean, the new-cluster variance), and clusters persist across rounds (the paper does not say whether they do)",
+   "the posterior base measure of Eq. (1) is read as H_i <- (c_i/(c_i+l)) H_i + (1/(c_i+l)) W_i; the printed 1/(c_i l) times the sum of the l values is a scalar and cannot update a vector-valued base measure",
+   "the duplicate rule keeps exact float equality as Alg. 2 writes it; no tolerance or quantization is invented, so on continuous data it fires only when two scores agree bit for bit",
+   "the paper does not say what happens when every client is removed; no fallback is invented, so such a round excludes everyone and the host keeps its previous global model"
+  ],
+  "needs_from_authors": [
+   "the authors' code for Eq. (4): whether p is evaluated at the update coordinates or at the p-values, and which of the printed 1 and Wbar is the mean",
+   "the authors' code for Alg. 2, to settle whether W_filtered collects the union or the intersection of the unique-score and below-average conditions (the reported TPR/TNR depend on it)",
+   "mu_0, sigma_0^2, tau_0 and the per-round update rule of tau_k and n_k, none of which the paper gives",
+   "whether clusters and per-client posteriors are reset between rounds, and how the shared H^t is updated in the authors' implementation"
+  ],
+  "confidence": "low",
+  "confidence_reason": "Every equation that decides the outcome (Eq. (4)'s three steps, the form of p and q, m, and Alg. 2's two ifs) has at least two readings in the extraction, and the chosen ones are documented, not verified against the authors' code. With the extraction's reading of Alg. 2 the filter removes only bit-identical Max_JD, so an isolated amplified update is scored highest (about 1000x the benign scores in the test) and is still kept. The pipeline itself is fully expressible: no missing runtime capability, and cross-round state plus client exclusion are exactly what the contract provides."
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "BayBFed",
+    "name": "baybfed",
+    "side": "server",
+    "stages": [
+     "server_aggregate",
+     "server_post_aggregate"
+    ],
+    "needs": [
+     "aggregate",
+     "uploads"
+    ],
+    "resources": [],
+    "acts": [
+     "select_and_weight"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 134
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 167,
+  "test_lines": 75,
+  "test_summary": "5 passed in 1.18s"
+ },
+ "status": "passed",
+ "tokens": 215632,
+ "seconds": 550.3,
+ "cache_read_tokens": 3830784
+}

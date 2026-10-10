@@ -1,0 +1,5 @@
+== runs/q35_control_0.8B/rec_safe_fedllm_client/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261010013800
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server safe_fedllm_client          server_aggregate             4      0       0       0     0.00  {}
+server safe_fedllm_client          server_receive               4      0      20       0     0.00  {}
+changes: rounds with clients reweighted=4

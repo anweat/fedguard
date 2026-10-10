@@ -1,0 +1,28 @@
+== runs/q35_sweep_0.8B/rec_gradient_spectral_entropy/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009224107
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client gradient_spectral_entropy   client_pre_train            20      0     480      20    38.59  {"threshold": 0.7356111315349768, "bimodal": true, "scored": 24, "masked": 14}
+changes: gradient_spectral_entropy: mask_samples=20
+round client samples poisoned masked tp fp fn
+0 client0 24 2 11 0 11 2
+1 client0 24 8 12 1 11 7
+2 client0 24 5 8 0 8 5
+3 client0 24 11 10 2 8 9
+0 client1 24 4 19 1 18 3
+1 client1 24 4 18 0 18 4
+2 client1 24 4 15 1 14 3
+3 client1 24 4 16 0 16 4
+0 client2 24 3 13 0 13 3
+1 client2 24 3 17 0 17 3
+2 client2 24 7 10 0 10 7
+3 client2 24 6 16 0 16 6
+0 client3 24 5 16 2 14 3
+1 client3 24 7 16 3 13 4
+2 client3 24 2 23 2 21 0
+3 client3 24 1 15 0 15 1
+0 client4 24 4 11 0 11 4
+1 client4 24 4 11 2 9 2
+2 client4 24 6 8 2 6 4
+3 client4 24 6 14 1 13 5
+overall: 480 samples, 96 poisoned; precision 0.061, recall 0.177
+model passes by client plugins: {"forward_samples": 480, "backward_samples": 480, "seconds": 38.6, "plugin_seconds": 40.1}
+per client-round: training 1.5 s, capture and client plugins 2.1 s

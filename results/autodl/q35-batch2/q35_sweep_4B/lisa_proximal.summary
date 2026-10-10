@@ -1,0 +1,4 @@
+== runs/q35_sweep_4B/rec_lisa_proximal/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009225415
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client lisa_proximal               client_pre_step            120      0       0     120     0.00  {"drift": 0.09824385616551999}
+changes: lisa_proximal: transform_gradients=120

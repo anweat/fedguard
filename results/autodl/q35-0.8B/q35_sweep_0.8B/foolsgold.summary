@@ -1,0 +1,4 @@
+== runs/q35_sweep_0.8B/rec_foolsgold/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009203518
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server foolsgold                   server_aggregate             4      0      20       0     0.00  {}
+changes: rounds with weights=4

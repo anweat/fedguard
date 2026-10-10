@@ -1,0 +1,12 @@
+== runs/flower_llm_ext_0.8B/client_all/records/guard
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client activation_clustering       client_pre_train             8      0       0       8     0.70  {"groups": {"": {"smaller_cluster_share": 0.375, "silhouette": 0.09920035091476166, "flagged": false}}, "maske
+client gradient_spectral_entropy   client_pre_train             8      0     128       8     6.75  {"threshold": 0.3349276770440547, "bimodal": true, "scored": 16, "masked": 15}
+client la_lora                     client_pre_step             32      0       0      32     0.00  {"step": 4, "active": "A", "bound": 0.01879115030169487, "matrices": 30}
+client lisa_proximal               client_pre_step             32      0       0      32     0.00  {"drift": 0.2924744262841227}
+client onion                       client_pre_train             8      0     128       8    12.00  {"examined_words": 198, "rewritten": 7}
+client received_adapter_scan       client_pre_train             8      0     240       0     0.00  {"flagged_rows": 0}
+client safety_mix                  client_pre_train             8      0       0       8     0.00  {"added": 11, "secret_words": 0}
+client spectral_signatures         client_pre_train             8      0     128       8     1.19  {"scored": 16, "masked": 2}
+client update_subspace_projection  client_post_train            8      0       0       8    14.85  {}
+changes: spectral_signatures: mask_samples=8, activation_clustering: mask_samples=8, gradient_spectral_entropy: mask_samples=8, onion: edit_samples=8, safety_mix: edit_samples=8, lisa_proximal: transform_gradients=32, la_lora: transform_gradients=32, update_subspace_projection: transform_update=8

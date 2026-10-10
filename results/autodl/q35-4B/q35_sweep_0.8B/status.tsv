@@ -1,0 +1,17 @@
+stats	ok	106
+krum	ok	88
+coordinate_median	ok	84
+trimmed_mean	ok	80
+foolsgold	ok	83
+flame	ok	84
+freqfed	ok	87
+fldetector	ok	82
+norm_clip	ok	85
+safe_fedllm_client	ok	83
+safe_fedllm_step	ok	85
+received_adapter_scan	ok	83
+update_subspace_projection	ok	259
+protegofed	ok	141
+spectral_signatures	ok	85
+gradient_spectral_entropy	ok	118
+activation_clustering	ok	86

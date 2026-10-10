@@ -1,0 +1,65 @@
+# Implementations: one way of doing a defense technique. `class` names a plugin in fedguard.methods or
+# fedguard.plugins; what it implements, where it deviates and which open choices were made is read
+# from the class docstring by the loader (kept in one place, next to the code).
+# Whether an implementation acts when there is no attack is not written here: it is measured by the
+# no-attack control scenario (scenarios.yaml, S-0000) and read from there.
+I-0001: {class: krum, technique: D-0001, reads: [uploads/factor_delta/client], status: tested, sources: [blanchard2017krum]}
+I-0002: {class: lomar, technique: D-0001, reads: [uploads/factor_delta/client], status: tested, sources: [li2022lomar],
+         known_failures: ["at the paper's threshold 1.0 it excluded 3 of 5 clients in every round of the Qwen3.5 runs"]}
+I-0003: {class: flame, technique: D-0001, also_serves: [D-0005], reads: [uploads/factor_delta/client, aggregate/result/model], status: tested, sources: [nguyen2022flame]}
+I-0004: {class: freqfed, technique: D-0001, reads: [uploads/factor_delta/client], status: tested, sources: [fereidooni2024freqfed]}
+I-0005: {class: coordinate_median, technique: D-0002, reads: [uploads/factor_delta/client, aggregate/result/model], status: tested, sources: [yin2018median]}
+I-0006: {class: trimmed_mean, technique: D-0002, reads: [uploads/factor_delta/client, aggregate/result/model], status: tested, sources: [yin2018median]}
+I-0007: {class: foolsgold, technique: D-0003, reads: [uploads/factor_delta/client], status: tested, sources: [fung2018foolsgold]}
+I-0008: {class: fldetector, technique: D-0003, reads: [uploads/factor_delta/client, aggregate/result/model], status: tested, sources: [zhang2022fldetector]}
+I-0009: {class: mud_hog, technique: D-0003, reads: [uploads/factor_delta/client, channel/self_reported/client], status: tested, sources: [ax2208.10273]}
+I-0010: {class: mcd, technique: D-0003, reads: [uploads/factor_delta/client], status: tested, sources: [sun2024vaguegan]}
+I-0011: {class: fltrust, technique: D-0004, reads: [uploads/factor_delta/client], status: tested, sources: [cao2020fltrust]}
+I-0012: {class: norm_clip, technique: D-0005, reads: [uploads/factor_delta/client], status: tested, sources: []}
+I-0013: {class: crfl, technique: D-0005, reads: [aggregate/result/model], status: tested, sources: [ax2106.08283],
+         known_failures: ["with the paper's norm bound the global LoRA was scaled to 0.10-0.14 of its norm every round (Kaiming-initialized A has a large norm)"]}
+I-0014: {class: safe_fedllm_client, technique: D-0006, reads: [uploads/module_delta/client, channel/self_reported/client], status: tested, sources: [safefedllm2026]}
+I-0015: {class: safe_fedllm_step, technique: D-0006, reads: [trace/factors/step, received/factors/module], status: tested, sources: [safefedllm2026], pairs_with: [I-0016]}
+I-0016: {class: safe_fedllm_step_trust, technique: D-0006, reads: [uploads/roster/client, channel/message/client, channel/self_reported/client], status: tested, sources: [safefedllm2026], pairs_with: [I-0015]}
+I-0017: {class: spectral_signatures, technique: D-0007, reads: [samples/hidden_state/sample], status: tested, sources: [tran2018spectral]}
+I-0018: {class: activation_clustering, technique: D-0007, reads: [samples/hidden_state/sample], status: tested, sources: [chen2018activation]}
+I-0019: {class: gradient_spectral_entropy, technique: D-0008, reads: [samples/gradient/sample], status: tested, sources: [gradsentry2026]}
+I-0020: {class: protegofed_client, technique: D-0008, reads: [samples/gradient/sample, channel/tensor/client], status: tested, sources: [protegofed2026], pairs_with: [I-0021]}
+I-0021: {class: protegofed_server, technique: D-0008, reads: [channel/tensor/client], status: tested, sources: [protegofed2026], pairs_with: [I-0020]}
+I-0022: {class: onion, technique: D-0009, reads: [samples/text/sample, samples/text_logprob/word], status: tested, sources: [qi2021onion],
+         known_failures: ["at the paper's threshold 0 it rewrote about 15 of 24 instruction samples per client"]}
+I-0023: {class: safety_mix, technique: D-0010, reads: [], status: tested, sources: [bianchi2023safetytuned, wang2024bea]}
+I-0024: {class: lisa_proximal, technique: D-0011, reads: [gradients/batch_gradient/parameter, gradients/parameter_value/parameter], status: tested, sources: [huang2024lisa]}
+I-0025: {class: la_lora, technique: D-0011, reads: [gradients/batch_gradient/parameter], status: tested, sources: [rethinklora2026]}
+I-0026: {class: received_adapter_scan, technique: D-0012, reads: [received/factors/module], status: tested, sources: [ax2607.27940]}
+I-0027: {class: update_subspace_projection, technique: D-0013, reads: [local_update/factors/module, local_update/aux_gradient/module], status: tested, sources: [ax2607.27940]}
+I-0028: {class: safe_lora, technique: D-0014, reads: [aggregate/result/model], status: experimental, sources: [hsu2024safelora],
+         blocked_by: "the entry point does not build the alignment resource"}
+# Reachable only through the trainer extension layer (fedguard.adapters.hf_trainer_ext): a run that mounts
+# them is marked as not being the host's original behavior. They were listed as unsupported (I-0101, I-0102)
+# before that layer existed.
+I-0039: {class: lisa, technique: D-0011, reads: [step_loss/batch_loss/step, step_loss/second_source_loss/step, step_loss/parameters/parameter, trace/scalars/step],
+         status: tested, sources: [huang2024lisa], notes: "supersedes the partial I-0024 where the extension layer may be used"}
+I-0040: {class: la_lora_dp, technique: D-0011, reads: [step_loss/per_sample_gradient/sample, gradients/batch_gradient/parameter],
+         status: tested, sources: [rethinklora2026],
+         known_failures: ["with the default bound (batch median) and sigma 0.36 at batch size 4, the replaced gradient had about 94 times the norm of the batch gradient on Qwen3.5-0.8B: the noise dominates"],
+         notes: "supersedes the partial I-0025 where the extension layer may be used"}
+# Collected, but the runtime cannot express them. `needs_runtime` names the missing capability.
+I-0103: {technique: D-0011, status: unsupported, sources: [ax2409.14119], title: "Obliviate, norm regularizers on PEFT weights and attention scores",
+         needs_runtime: encoder_classifier_attention_scores,
+         notes: "a loss term is expressible since the trainer extension; the method itself is defined on the [CLS] attention of encoder classifiers, which the causal language models served here do not have"}
+I-0104: {technique: D-0014, status: unsupported, sources: [huang2024antidote], title: "Antidote, Wanda-score pruning after fine-tuning", needs_runtime: non_low_rank_global_model}
+I-0105: {technique: D-0014, status: unsupported, sources: [ax2410.14425], title: "W2SDefense, unlearning by weak-to-strong distillation",
+         needs_runtime: server_side_training,
+         notes: "the server would train the aggregated model against a teacher; no host gives the server a training loop"}
+# The built-in plugins (fedguard.plugins): measurements and small utilities that ship with the library.
+I-0029: {class: effect_stats, technique: D-0015, reads: [uploads/product_delta/client], status: tested, sources: []}
+I-0030: {class: factor_stats, technique: D-0015, reads: [uploads/factor_delta/client], status: tested, sources: []}
+I-0031: {class: robust_outlier, technique: D-0015, reads: [history/features/round], status: tested, sources: []}
+I-0032: {class: evidence_accumulator, technique: D-0015, reads: [], status: experimental, sources: []}
+I-0033: {class: compliance_probe, technique: D-0015, reads: [uploads/probe_behavior/client], status: experimental, sources: []}
+I-0034: {class: local_centroid, technique: D-0015, reads: [samples/text/sample, channel/message/client], status: experimental, sources: [], pairs_with: [I-0035]}
+I-0035: {class: centroid_consensus, technique: D-0015, reads: [channel/message/client], status: experimental, sources: [], pairs_with: [I-0034]}
+I-0036: {class: report_guard, technique: D-0016, reads: [channel/self_reported/client], status: experimental, sources: []}
+I-0037: {class: jump_rollback, technique: D-0017, reads: [aggregate/result/model], status: experimental, sources: []}
+I-0038: {class: sample_mask, technique: D-0007, reads: [], status: experimental, sources: [], notes: "applies another plugin's per-sample scores as a mask"}

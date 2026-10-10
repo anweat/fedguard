@@ -1,0 +1,248 @@
+{
+ "key": "inan2023llamaguard",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 69849,
+    "outputTokens": 113806,
+    "cacheReadTokens": 3095680,
+    "cacheWriteTokens": 0,
+    "totalTokens": 3279335
+   },
+   "seconds": 545.0,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 89368,
+ "report": {
+  "key": "inan2023llamaguard",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "llama_guard",
+    "class": "LlamaGuard",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "taxonomy"
+    ],
+    "acts": [
+     "mask_samples"
+    ]
+   }
+  ],
+  "steps_total": 6,
+  "steps_ported": 5,
+  "steps_outside": 1,
+  "ops_used": [
+   "fedguard.ops.sampling.subsample"
+  ],
+  "new_helpers": [
+   {
+    "name": "guideline_block",
+    "lines": 18,
+    "generic": false,
+    "what": "renders the numbered categories and their safe/unsafe descriptions into the guidelines block of the prompt (names-only or with descriptions)"
+   },
+   {
+    "name": "example_block",
+    "lines": 14,
+    "generic": false,
+    "what": "renders the defender-supplied in-context examples of Section 3.2 as a block of the prompt"
+   },
+   {
+    "name": "conversation_block",
+    "lines": 4,
+    "generic": false,
+    "what": "renders one local sample as a single-turn conversation with the role the task selects"
+   },
+   {
+    "name": "build_task_prompt",
+    "lines": 6,
+    "generic": false,
+    "what": "fills the module-level TASK_PROMPT (12 further lines) with the four ingredients of Section 3.1"
+   },
+   {
+    "name": "parse_category_indices",
+    "lines": 15,
+    "generic": true,
+    "what": "reads the 1-based category indices out of a letter-plus-index verdict string, without the re module (not an allowed import)"
+   },
+   {
+    "name": "binary_guard_score",
+    "lines": 5,
+    "generic": true,
+    "what": "two-way renormalization of the safe/unsafe log-probabilities into P(unsafe), numerically guarded"
+   }
+  ],
+  "missing_ops": [],
+  "extraction_needs": [
+   {
+    "data": "the content to judge (a user prompt or an agent response)",
+    "where": "client side, before local training, at CLIENT_PRE_TRAIN",
+    "provided": "partly",
+    "via": "`data` gives DataView.samples() and DataView.text(i), so the local training text is reachable; the text of the model's own generation is not reachable anywhere (see the entry on generations), and the server never sees text at all"
+   },
+   {
+    "data": "a forward pass of the guard classifier over the assembled prompt",
+    "where": "client side, CLIENT_PRE_TRAIN",
+    "provided": "yes",
+    "via": "`model_handle`; ModelHandle.logprob(prompts, targets) for the two verdict tokens and ModelHandle.generate(prompts, max_new_tokens) for the emitted category list. The handle must wrap the guard model: ClientGuard.begin_round/pre_train take model_handle=, and fedguard.adapters.hosts treats model_handle as a glue kind on the client"
+   },
+   {
+    "data": "the probability of the first token the guard model would generate",
+    "where": "client side, at the scoring call",
+    "provided": "partly",
+    "via": "ModelHandle.logprob returns the MEAN per-token log-probability of a target. For a one-token target that is exactly the first token's log-probability (the paper states safe and unsafe are single tokens in its SentencePiece tokenizer); it is a mean over the target's tokens for any longer target, and no method returns the raw first-token distribution"
+   },
+   {
+    "data": "the safety taxonomy: numbered categories with plain-text guidelines",
+    "where": "not from the run; a defender asset carried into the plugin",
+    "provided": "partly",
+    "via": "`resources={'taxonomy'}`, read with ctx.resource('taxonomy'); the paper's own six categories and its guideline wording are not in the extracted text, so they are an input and not a value baked into the plugin"
+   },
+   {
+    "data": "the 2 to 4 in-context examples per category that Section 3.2 puts in the prompt",
+    "where": "not from the run; a defender asset",
+    "provided": "partly",
+    "via": "the `examples` key of the same resource, used only in mode='few_shot'; how they are selected and ordered is left open by the paper"
+   },
+   {
+    "data": "whether the content is a user turn or an agent turn (the type of classification)",
+    "where": "plugin configuration",
+    "provided": "yes",
+    "via": "a constructor argument, `task`; the library itself has no notion of turn roles, DataView.text(i) is one opaque string per sample"
+   },
+   {
+    "data": "the identity of each local sample, so that a sample judged unsafe can be taken out of the round",
+    "where": "client side, CLIENT_PRE_TRAIN",
+    "provided": "yes",
+    "via": "DataView.manifest gives a hash, a source tag and a length per sample; the proposal goes out as findings.proposals['mask'] and is applied as `mask_samples`, which ClientGuard.kept_indices()/training_samples() then reflect"
+   },
+   {
+    "data": "conversation structure and turn boundaries, to judge multi-turn content and to pack it to 4096 tokens",
+    "where": "client side, wherever the samples are read",
+    "provided": "no",
+    "via": "DataView.text(i) returns one string per sample and the manifest records only a hash, a source tag and a length; nothing marks turns, so a multi-turn conversation cannot be reconstructed or truncated the way the paper's inputs are"
+   },
+   {
+    "data": "the encoded text of the model's own generation, for the output half of the guardrail",
+    "where": "anywhere in a round",
+    "provided": "no",
+    "via": "no stage carries generated text: LossView at CLIENT_LOSS holds output tensors, the batch and sample hashes and never text, and there is no detokenization path; ModelHandle.generate can turn a prompt into text, but that needs a second model while a plugin gets one handle of its side"
+   },
+   {
+    "data": "labelled content to calibrate the decision threshold (the AUPRC and per-use-case threshold work of Section 4.3.3)",
+    "where": "no position; outside the run",
+    "provided": "no",
+    "via": "the library has no evaluation or calibration position; the threshold is a constructor parameter and any calibration happens outside the record"
+   },
+   {
+    "data": "the fine-tuning data of the guard model itself (Anthropic harmlessness prompts, cooperating and refusing responses, red-team labels, index shuffling, the two augmentations)",
+    "where": "outside the plugin, by rule 3",
+    "provided": "no",
+    "via": "the plugin carries no training loop; the trained guard arrives behind the model handle"
+   }
+  ],
+  "external_state": [
+   "the instruction-tuned Llama Guard classifier (Llama2-7b plus the released guard weights), loaded by the deployment and wrapped in a ModelHandle; the plugin does not create it",
+   "the safety taxonomy with per-category safe/unsafe guideline text (the six categories of the paper and its wording are not in the extracted text, so a defender taxonomy replaces them)",
+   "the few-shot in-context examples, 2 to 4 per category, mixing unsafe and safe with the safe ones as hard negatives",
+   "the decision threshold chosen per deployment from the precision/recall trade-off the paper leaves to the use case",
+   "the offline pipeline that produced the guard model, if the defender retrains it instead of using the released weights",
+   "no cross-round state: the guard of the paper judges each piece of content on its own, and the plugin keeps nothing in ctx.state"
+  ],
+  "missing_runtime": [
+   {
+    "what": "a second model handle: a plugin receives one `model_handle` per side, and on the client the adapters glue that slot to the model being trained",
+    "blocks": "step 3 in any deployment that follows the adapter default; the guard model has to be loaded and handed in by the app through ClientGuard.begin_round/pre_train(model_handle=...), and a plugin can never hold the training model and the guard model at once, which is what the generated-then-judged output guardrail would need"
+   },
+   {
+    "what": "a stage or view that carries the text of what the model generated",
+    "blocks": "the output half of the paper's guardrail (the response classification of Section 3.1 and every response-side number in the paper); LossView exposes output tensors and sample hashes, not text, and the server side never sees text"
+   },
+   {
+    "what": "a first-token distribution read on a model handle: only logprob(prompts, targets), the mean per-token log-probability of a target, exists",
+    "blocks": "the exact step-4 reading for any verdict word that is not a single token in the handle's tokenizer; with the tokenizer the paper describes (safe and unsafe are single tokens) nothing is blocked, but the plugin cannot check or enforce that"
+   }
+  ],
+  "deviations": [
+   "the paper is a centralized serving-time guardrail with no client, no aggregation and no round; the port mounts the decision procedure on the client at CLIENT_PRE_TRAIN and judges the text of the local training samples before the round trains on them",
+   "the score read of step 4 goes through ModelHandle.logprob, whose value is the mean per-token log-probability of the target and equals the first-token probability only for a single-token verdict word",
+   "one local sample is treated as one single-turn message, while the content of the paper is a conversation; the role label comes from the `task` flag",
+   "the paper defines no action after a verdict, so the verdict is carried into training as mask_samples, the only content-level intervention the library has",
+   "the six categories of the paper and its guideline text are not in the extracted text, so the taxonomy is a resource supplied by the defender",
+   "step 6 of the pipeline is counted as outside the plugin: the paper states no rule for turning a verdict into an action, so what the plugin does with the score (a threshold and a mask) is library policy rather than a ported rule"
+  ],
+  "open_choices": [
+   "the prompt wording: the four ingredients of Section 3.1 (guidelines, classification type, conversation, output format) are rendered into a template of my own, with my own block markers; the paper prints no template",
+   "whether the first-token safe/unsafe probabilities are renormalized over the two tokens is decided as renormalized (binary_guard_score)",
+   "the threshold default is 0.5, the value the paper uses only for precision/recall/F1 in Appendix B, and the comparison is strict, so a score exactly at the threshold is safe",
+   "the emitted category letter is O, and only a number directly following a letter is read back from a generated continuation",
+   "in per-category mode the score of a sample is the maximum over the categories (the aggregation of equation (1), which the paper uses only for evaluation and warns does not check category alignment), and the violated list is the categories above the threshold",
+   "the single-pass category list comes from a greedy ModelHandle.generate, since the paper leaves the decoding of that list open; in per-category mode no continuation is asked for",
+   "max_samples subsamples the samples to bound the number of forward passes; it is not in the paper",
+   "a taxonomy with no category, or a handle that returns the wrong number of values or a non-finite value, makes the round report-only instead of guessing",
+   "one sample is one message whose role is User for task='prompt' and Agent for task='response'"
+  ],
+  "needs_from_authors": [
+   "the verbatim guideline text, the instruction template and the output-format wording of Section 3.1, which the extracted text does not preserve",
+   "the released tokenizer and the token ids of safe and unsafe, to confirm that both are single tokens as the paper asserts and that the first-token reading is well defined",
+   "the decoding procedure of the released model for the violated-category list (greedy, beam, or constrained to legal category tokens)",
+   "the thresholds and operating points used in the deployment the paper describes, since the paper gives none",
+   "how the few-shot examples were selected and ordered, beyond the statement that safe ones are hard negatives and 2 to 4 per category are used"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "The decision procedure maps cleanly onto the library and every branch of the plugin is covered by a test that runs in seconds without a model: the prompt assembly, the three adaptation modes, the score renormalization, the single-pass and 1-vs-all decisions, the emitted verdict, the threshold, and the mask action all behave as intended. What holds the confidence at medium is fidelity, not mechanics: the prompt template and the guideline text are absent from the extraction, whether the verdict words are one token (and so whether logprob gives the paper's first-token reading) can only be checked against the released tokenizer, and the port only runs as intended if the deployment loads Llama Guard and passes its handle at CLIENT_PRE_TRAIN instead of the training model the adapters glue there. The output-side half of the guardrail is not expressible at all, which is why the verdict is partial rather than full."
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "LlamaGuard",
+    "name": "llama_guard",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "taxonomy"
+    ],
+    "acts": [
+     "mask_samples"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 158
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 277,
+  "test_lines": 183,
+  "test_summary": "9 passed in 1.05s"
+ },
+ "status": "passed",
+ "tokens": 183655,
+ "cache_read_tokens": 3095680,
+ "seconds": 545.0
+}

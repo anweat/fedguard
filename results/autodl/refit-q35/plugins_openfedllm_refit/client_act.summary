@@ -1,0 +1,5 @@
+== runs/plugins_openfedllm_refit/rec_client_act/alpaca-gpt4_400_fedavg_c5s5_i4_b4a1_l128_r16a32_20261011030245
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client lisa_proximal               client_pre_step             40      0       0      40     0.00  {"drift": 0.18545103306454344}
+client spectral_signatures         client_pre_train            10      0     160      10     1.37  {"scored": 16, "masked": 2}
+changes: spectral_signatures: mask_samples=10, lisa_proximal: transform_gradients=40

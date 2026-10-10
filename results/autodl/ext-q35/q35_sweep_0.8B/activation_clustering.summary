@@ -1,0 +1,28 @@
+== runs/q35_sweep_0.8B/rec_activation_clustering/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009224112
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client activation_clustering       client_pre_train            20      0       0      20     4.91  {"groups": {"": {"smaller_cluster_share": 0.2916666666666667, "silhouette": 0.15886995351543362, "flagged": tr
+changes: activation_clustering: mask_samples=20
+round client samples poisoned masked tp fp fn
+0 client0 24 2 2 0 2 2
+1 client0 24 8 5 1 4 7
+2 client0 24 5 0 0 0 5
+3 client0 24 11 0 0 0 11
+0 client1 24 4 7 0 7 4
+1 client1 24 4 0 0 0 4
+2 client1 24 4 8 0 8 4
+3 client1 24 4 0 0 0 4
+0 client2 24 3 4 0 4 3
+1 client2 24 3 3 0 3 3
+2 client2 24 7 5 0 5 7
+3 client2 24 6 0 0 0 6
+0 client3 24 5 0 0 0 5
+1 client3 24 7 0 0 0 7
+2 client3 24 2 7 1 6 1
+3 client3 24 1 5 0 5 1
+0 client4 24 4 0 0 0 4
+1 client4 24 4 8 1 7 3
+2 client4 24 6 0 0 0 6
+3 client4 24 6 7 2 5 4
+overall: 480 samples, 96 poisoned; precision 0.082, recall 0.052
+model passes by client plugins: {"forward_samples": 480, "seconds": 4.9, "plugin_seconds": 6.1}
+per client-round: training 1.6 s, capture and client plugins 0.4 s

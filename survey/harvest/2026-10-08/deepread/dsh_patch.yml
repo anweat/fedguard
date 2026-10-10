@@ -1,0 +1,7 @@
+# 精读任务的模型设置，与桌面端档（~/.dsh/profiles/desktop）一致：账号额度、最高推理强度。
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-account
+    model: deepseek-flash
+    reasoningEffort: max

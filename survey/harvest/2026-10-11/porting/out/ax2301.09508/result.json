@@ -1,0 +1,229 @@
+{
+ "key": "ax2301.09508",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 104594,
+    "outputTokens": 156245,
+    "cacheReadTokens": 4505856,
+    "cacheWriteTokens": 0,
+    "totalTokens": 4766695
+   },
+   "seconds": 737.5,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 87858,
+ "report": {
+  "key": "ax2301.09508",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "baybfed",
+    "class": "BayBFed",
+    "side": "server",
+    "stages": [
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads",
+     "aggregate"
+    ],
+    "resources": [],
+    "acts": [
+     "select_and_weight"
+    ]
+   }
+  ],
+  "steps_total": 14,
+  "steps_ported": 13,
+  "steps_outside": 1,
+  "ops_used": [
+   "fedguard.ops.geometry.cosine_to",
+   "fedguard.ops.geometry.distance_to",
+   "fedguard.ops.states.flatten"
+  ],
+  "new_helpers": [
+   {
+    "name": "log_normal",
+    "lines": 5,
+    "generic": true,
+    "what": "在一个张量的每个元素上取正态分布 N(mean, sd) 的对数密度，sd 可以广播；fedguard.ops 没有这个算子"
+   },
+   {
+    "name": "normal_density",
+    "lines": 3,
+    "generic": true,
+    "what": "正态密度本身，对数下界钳到 -700，远离均值的坐标不会变成精确的 0（避免后续归一化出现 0/0）"
+   },
+   {
+    "name": "jensen_shannon",
+    "lines": 17,
+    "generic": true,
+    "what": "两个非负向量各自归一化后的 Jensen-Shannon 散度（nats），按行批量计算；fedguard.ops 没有 KL/JS 算子"
+   },
+   {
+    "name": "round_filter",
+    "lines": 19,
+    "generic": false,
+    "what": "论文 Alg. 2 的过滤规则（低于本轮均值且取值唯一才保留），拆成模块级函数以便直接测两条规则"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "normal_density / normal_log_density",
+    "what": "在给定点上求一个已知正态的密度；ops.density 只有 gaussian_kde（从样本估密度），没有这个"
+   },
+   {
+    "name": "jensen_shannon_divergence",
+    "what": "ops 里没有 KL 或 JS 散度，最接近的只有 ops.density.shannon_entropy"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "每个客户端本轮上传的本地模型 W_i^t（LoRA 全部因子项）",
+    "where": "服务器侧，SERVER_AGGREGATE，一批上传到达后",
+    "provided": "yes",
+    "via": "ctx.uploads.state(cid)，再用 fedguard.ops.states.flatten 展平"
+   },
+   {
+    "data": "本轮广播用的全局模型 G^{t-1}（Eq. 2 的余弦、Eq. 3 的 L2、簇先验都要它）",
+    "where": "服务器侧，SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "ctx.aggregate.base（该轮广播的 base）"
+   },
+   {
+    "data": "初始全局模型 G^0 的展平均值 mu_p 与标准差 sigma_p（基线 Beta process）",
+    "where": "服务器侧，插件第一次被调用那一轮的 SERVER_AGGREGATE",
+    "provided": "partly",
+    "via": "ctx.aggregate.base；只有从第 0 轮就挂载才等于 G^0，接口不告诉插件本轮是不是第一轮，晚挂载会拿当时的全局模型当基线"
+   },
+   {
+    "data": "展平维度 l",
+    "where": "服务器侧，SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "states.flatten(...).numel()"
+   },
+   {
+    "data": "每个客户端首次参与时的浓度随机数 c_i ~ Poisson(c)",
+    "where": "服务器侧，该客户端第一次出现的那一轮",
+    "provided": "yes",
+    "via": "ctx.rng（numpy Generator），不碰全局随机状态"
+   },
+   {
+    "data": "跨轮保存的每客户端 Beta 后验状态 (c_i, H_i)，H_i 是 l 维向量",
+    "where": "服务器侧，跨轮",
+    "provided": "yes",
+    "via": "ctx.state"
+   },
+   {
+    "data": "跨轮保存的簇结构 (mu_cl, scale_cl, n_k, tau_k)",
+    "where": "服务器侧，跨轮",
+    "provided": "yes",
+    "via": "ctx.state"
+   },
+   {
+    "data": "本轮参与者及上传到达顺序",
+    "where": "服务器侧，SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "ctx.uploads.clients（顺序就是宿主交上来的顺序）"
+   },
+   {
+    "data": "检测结论回到聚合：剔除谁、保留者用什么权重",
+    "where": "服务器侧，SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "Decision(excluded=..., weights=...) 配动作 select_and_weight"
+   },
+   {
+    "data": "模型前向/反向",
+    "where": "不需要",
+    "provided": "yes",
+    "via": "方法全程不跑模型，因此没有声明 model_handle"
+   }
+  ],
+  "external_state": [
+   "每客户端状态 (c_i, H_i)：c_i 首次出现时抽一次、此后每轮加 l；H_i 是 l 维基测度位置向量，跨轮保留，是本方法最占内存的一项",
+   "簇表 (mu_cl, scale_cl, n_k, tau_k)：论文不设簇数上限、也没有合并或遗忘规则，n_oc 只增不减（合成 4 轮实验里从 0 涨到 17）",
+   "基线统计 (mu_p, sigma_p)，由 G^0 一次性算出后固定",
+   "本轮 Max_JD 数组，每轮重建（论文 Alg. 1 第 3 行）",
+   "没有 resources：方法不需要干净数据、探针、预训练检测器或参考更新；唯一的外部输入是本轮全局模型，而它由 FL 训练本身产生"
+  ],
+  "missing_runtime": [],
+  "deviations": [
+   "因子空间：W_i 取上传的 LoRA 状态展平、G 取本轮广播的 LoRA 状态展平（都按 key 排序），不是完整模型权重，l 是适配器条目数；冻结的基座权重对所有客户端相同，不可能承载逐客户端的后门",
+   "Eq. (4) 第 (iii) 行没有实现：按字面读成在 p 的取值上再套一次正态密度 N(p; 1, W_bar_up)，其自变量范围远在该正态左尾、变换近似线性，会把分数抹平——在测试那个合成轮上，8 个上传里被放大的那个反而拿到最小的 Max_JD，Alg. 2 不会剔除它。Eq. (4) 因此只用 p = N(W_up; mu_p, sigma_p) + H，第三步剩下的唯一作用（把 p 变成分布）由散度内部的归一化承担",
+   "Eq. (2) 往原始权重坐标上加一个余弦值（[-1,1] 的无量纲数），默认权重是 O(1) 量级；真实 LoRA 因子远小于 1 而论文没有做任何归一化，在这样的适配器上这个平移可能盖过信号。平移按原样应用",
+   "Alg. 2 的列表语义（同一客户端可被 append 两次）改成集合语义：保留条件 = 严格低于本轮均值 且 取值唯一",
+   "分数针对本轮开始时的簇结构计算，所以本轮判决不依赖上传到达顺序（论文 Requirement II）；簇状态仍是顺序更新（Eq. 6-7 本身是串行的），跨轮状态因此仍与顺序有关",
+   "均值规则会连带剔除分数略微高于本轮均值的良性客户端：合成 4 轮、8 个里 1 个被放大的实验里，从第 1 轮起每轮都多剔掉一个良性客户端，论文没有讨论这一点"
+  ],
+  "open_choices": [
+   "p、q 读作因子坐标上的 l 维密度向量，由散度各自归一化到和为 1；m = (p + q)/2；用自然对数（Eq. (12) 没定义 m；过滤只与轮内均值比较，对数的底会约掉）",
+   "H_i 是 l 维向量：Eq. (4) 把它逐元素加到 p 上，论文自己的存储分析也称 H_i 是 l 维；Eq. (1) 印的是对标量求和，这里按坐标逐项组合、系数照印。H_i^0 取每个坐标都是 mu_p，即基测度 H = N(mu_p, sigma_p) 的位置",
+   "Eq. (1) 印出的系数使数据项随 c_i 每轮加 l 而不断变小，H_i 始终接近 0；照印保留，未改成标准 BP 后验的系数",
+   "mu_0 与 sigma_0^2 论文没给值，用基测度的 mu_p、sigma_p（CRP 先验的自然含义）；tau_0 = 1 / sigma_0^2",
+   "tau_k 与 n_k 论文没有更新规则：tau_k = 1 / scale_cl^2，n_k 为该簇已分配到的更新数，分配时自增",
+   "Eq. (7) 按印出形式是方差量纲（逆精度加方差），取平方根作为 Eq. (5) 需要的标准差",
+   "sigma_w 取 Eq. (3) 的 d * cos，sigma_w^2 取其平方，以此消解与 Alg. 1 第 7 行 sigma^2_w 的记号冲突",
+   "簇分配取 JD 向量在已有簇与虚拟新簇上的最小值（客户端加入最贴合的那一桌，虚拟新簇胜出就新建簇）；论文只说依 Max_i^JD 决定、没说 argmax 还是 argmin，其直觉段（JD 大→新簇）与 CRP 的最近桌语义相冲突；过滤用的是最大值",
+   "新簇以 mu_0、sqrt(sigma_0^2 + sigma_w^2)（Sect. 4.3）、n_k = 1、tau_k = 1/scale^2 建立",
+   "所有客户端（无论是否被剔除）都参与分配并更新簇，与 Alg. 1 一致",
+   "少于两个上传、或本轮没有广播 base 时只报告、不给 Decision：Alg. 1 假定每轮 n 个客户端，未定义这种情况",
+   "保留者给等权（Appendix A 的 s_i = 1/n）"
+  ],
+  "needs_from_authors": [
+   "Eq. (4) 第 (iii) 行的确切含义（1 与 W_bar 谁是均值、这一步到底是密度还是归一化）——按字面实现会改变检测结果的符号",
+   "Max_i^JD 到底以 argmax 还是 argmin 决定簇归属，以及 n_oc = 0 时 Alg. 1 第 12-23 行的控制流",
+   "mu_0、sigma_0^2、tau_0 的取值，以及 tau_k、n_k 的逐轮更新规则",
+   "簇状态（n_oc、mu_cl、sigma_cl、n_k）是否跨轮保留、n_k 是否每次分配后自增",
+   "重复判定在实现里怎么做（Alg. 2 要求精确相等，但没给容差或量化方案）",
+   "W_i^t 是完整本地模型还是相对 G^{t-1} 的增量；展平前是否按坐标归一化；是否包含 BatchNorm 统计量",
+   "H^t 是每客户端一份 H_i^t 还是全局单一 H^t（Sect. 4.2.1 与 Sect. 4.2.2 措辞不一致）",
+   "作者是否公开了实现：快速检索没有找到代码仓库，以上各点只能靠作者代码或答复确认"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "流水线在库里表达得出来，唯一不属插件的只有标准 FedAvg；13 个步骤全部实现并在合成 LoRA 上跑通机制测试（8 个客户端里 1 个更新被放大 → 只剔除它；单客户端轮不动作；同质轮只剩均值规则在起作用）。但论文对核心统计量（Eq. 4 的第三行、簇分配方向、重复判定、mu_0/sigma_0/tau_k/n_k）几乎没有约束，Eq. (4) 第 (iii) 行按字面实现会让被放大的更新拿到最小 Max_JD（已实测），因此移植结果是一份有记录的读法，不是复现；论文的任何数值都没有核对。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "BayBFed",
+    "name": "baybfed",
+    "side": "server",
+    "stages": [
+     "server_aggregate"
+    ],
+    "needs": [
+     "aggregate",
+     "uploads"
+    ],
+    "resources": [],
+    "acts": [
+     "select_and_weight"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 153
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 229,
+  "test_lines": 65,
+  "test_summary": "4 passed in 1.04s"
+ },
+ "status": "passed",
+ "tokens": 260839,
+ "cache_read_tokens": 4505856,
+ "seconds": 737.5
+}

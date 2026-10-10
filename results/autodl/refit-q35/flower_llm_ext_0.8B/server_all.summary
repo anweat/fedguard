@@ -1,0 +1,28 @@
+== runs/flower_llm_ext_0.8B/server_all/records/guard
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server coordinate_median           server_post_aggregate        2      0       0       2     0.00  {"clients": ["6727560921934206017", "2074421174786389007", "8223571132312895479", "14561660579680304785"]}
+server crfl                        server_post_aggregate        2      0       0       2     0.00  {"rho": 2.3, "clip_factor": 0.18162679642158114, "noise": true}
+server effect_stats                server_receive               2      0       0       0     0.00  {"clients": ["2074421174786389007", "6727560921934206017", "8223571132312895479", "14561660579680304785"], "gr
+server factor_stats                server_receive               2      0       0       0     0.00  {}
+server flame                       server_aggregate             2      0       0       0     0.00  {}
+server flame                       server_post_aggregate        2      0       0       2     0.00  {"sigma": 0.00030573889376969536}
+server flame                       server_receive               2      0       0       4     0.00  {"bound": 0.3057388937696954}
+server fldetector                  server_aggregate             2      0       0       0     0.00  {}
+server fldetector                  server_post_aggregate        2      0       0       0     0.00  {}
+server fldetector                  server_receive               2      0       0       0     0.00  {"skipped": "window 0/10"}
+server foolsgold                   server_aggregate             2      0       8       0     0.00  {}
+server freqfed                     server_aggregate             2      0       0       0     0.00  {"low_frequency_components": 339076}
+server jump_rollback               server_post_aggregate        2      0       2       0     0.00  {"rolled_back": false}
+server krum                        server_aggregate             2      0       8       0     0.00  {}
+server lomar                       server_aggregate             2      0       0       0     0.00  {}
+server lomar                       server_receive               2      0       8       0     0.00  {"k": 1, "below_threshold": ["14561660579680304785", "2074421174786389007"]}
+server mcd                         server_aggregate             2      0       0       0     0.00  {}
+server mcd                         server_receive               2      0       0       0     0.00  {"buffered": 4, "period": 0}
+server mud_hog                     server_aggregate             2      0       0       0     0.00  {}
+server mud_hog                     server_receive               2      0       0       0     0.00  {"skipped": "warm-up or fewer than 3 clients (round 2)"}
+server norm_clip                   server_receive               2      0       8       0     0.00  {"bound": 0.917216681309049}
+server report_guard                server_aggregate             2      0       8       0     0.00  {"caps": {"2074421174786389007": {"peer": 32.0, "pinned": 16.0}, "6727560921934206017": {"peer": 32.0, "pinned
+server robust_outlier              server_receive               2      0       0       0     0.00  {"reference": {"2074421174786389007": "insufficient", "6727560921934206017": "insufficient", "8223571132312895
+server safe_fedllm_step_trust      server_aggregate             2      0       8       0     0.00  {}
+server trimmed_mean                server_post_aggregate        2      0       0       2     0.00  {"clients": ["6727560921934206017", "2074421174786389007", "8223571132312895479", "14561660579680304785"]}
+changes: flame: transform_update=4, flame: replace_global=2, coordinate_median: replace_global=2, trimmed_mean: replace_global=2, crfl: replace_global=2

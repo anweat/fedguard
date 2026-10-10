@@ -1,0 +1,199 @@
+{
+ "key": "huang2024booster",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 40047,
+    "outputTokens": 35166,
+    "cacheReadTokens": 46720,
+    "cacheWriteTokens": 0,
+    "totalTokens": 121933
+   },
+   "seconds": 157.8,
+   "errors": 1
+  },
+  {
+   "round": 2,
+   "usage": {
+    "inputTokens": 75408,
+    "outputTokens": 49249,
+    "cacheReadTokens": 1572224,
+    "cacheWriteTokens": 0,
+    "totalTokens": 1696881
+   },
+   "seconds": 289.2
+  }
+ ],
+ "prompt_chars": 83570,
+ "report": {
+  "key": "huang2024booster",
+  "verdict": "not_expressible",
+  "plugins": [],
+  "steps_total": 10,
+  "steps_ported": 0,
+  "steps_outside": 4,
+  "ops_used": [],
+  "new_helpers": [],
+  "missing_ops": [],
+  "extraction_needs": [
+   {
+    "data": "对齐 batch (x_t, y_t)：每步 10 条有害提示—安全回答对，取自防御方自己的约 5000 条对齐数据集",
+    "where": "对齐阶段的一次性训练里的每个优化步，服务器一侧；Algorithm 1 第 2 行",
+    "provided": "no",
+    "via": "库唯一的样本视图是客户端的 `data`（KIND_SIDE['data']='client'），取的是本轮该客户端的本地样本；服务器一侧没有任何数据类别。`resources` 只能把资产交给插件，而库没有「在离线对齐训练的优化步里消费它」的位置。"
+   },
+   {
+    "data": "有害 batch (x'_t, y'_t)：每步 10 条有害提示—有害回答对；第 5、6 行的两次求梯度复用同一批",
+    "where": "对齐阶段的每个优化步，服务器一侧；Algorithm 1 第 3、5、6 行",
+    "provided": "no",
+    "via": "同上：有害数据既不是客户端本地样本，服务器侧也没有数据视图；作为 resource 交进来也没有消费它的位置。"
+   },
+   {
+    "data": "当前可训练参数 w_t（论文实验里是 LoRA 适配器）：用来构造 w'_t，并保证归一化、扰动与梯度在同一坐标里",
+    "where": "对齐阶段的每个优化步，参数更新之前；Algorithm 1 第 5–8 行",
+    "provided": "partly",
+    "via": "客户端一侧 CLIENT_PRE_STEP 的 `gradients.value(name)` 给出参数本身（detached 只读视图）；`train_trace.lora()` 能在 CLIENT_STEP 取当前 LoRA 的 CPU 拷贝，但 reference 只写明 `on_step(step, scalars, lora=callable)` 由宿主提供该 callable，`on_gradients(step, named_parameters)` 没有这一项，所以 CLIENT_PRE_STEP 能否拿到 state 取决于宿主。服务器一侧默认没有模型，也没有「正在被对齐训练的模型」这个对象。"
+   },
+   {
+    "data": "对齐损失的梯度 ∇̃f(w_t)（SFT 交叉熵），以及它属于哪一次训练步",
+    "where": "对齐阶段每个优化步，参数更新之前；Algorithm 1 第 4 行",
+    "provided": "partly",
+    "via": "CLIENT_PRE_STEP 的 `gradients` 视图正是「宿主当步算出的训练梯度」（`get`/`value`/`flat`/`norm`），但它是客户端本地微调数据上的梯度，不是防御方对齐数据上的梯度；服务器一侧没有训练步。"
+   },
+   {
+    "data": "有害损失在当前权重处的梯度 ∇̃h(w_t)",
+    "where": "对齐阶段每个优化步的一次额外前向+反向，服务器一侧；Algorithm 1 第 5 行",
+    "provided": "partly",
+    "via": "`model_handle.per_sample_gradients(samples, group, scope, reduce)` 能对插件自带的样本给出对可训练参数的逐样本梯度（求和即 batch 梯度），`layout()` 给出键与形状；但服务器句柄要防御方自备并传入，而且没有把它接到「对齐训练的优化器」上的运行时。"
+   },
+   {
+    "data": "临时扰动权重 w'_t = w_t − α·u_t：只用于第二次求值、不持久化，梯度不穿过它",
+    "where": "对齐阶段每个优化步，第 5 与第 6 行之间；Algorithm 1 第 6 行；式 (2)→(3)",
+    "provided": "partly",
+    "via": "`ModelHandle.lora(state)` 是上下文管理器，可在给定 LoRA 载入下跑一段并在退出时精确恢复，所以「载入一份常数 w'」原则上可表达；但 w' 要由当前 state 算出（见上一条），库既不暴露权重写入，也不保证插件能在同一优化步里把 w' 交给下一次求值。"
+   },
+   {
+    "data": "有害损失在扰动权重处的梯度 ∇̃h(w_t − α·u_t)",
+    "where": "对齐阶段每个优化步的第二次反向，服务器一侧；Algorithm 1 第 6 行",
+    "provided": "partly",
+    "via": "机制上仍是 `with handle.lora(w'): handle.per_sample_gradients(...)`；缺的是同一优化步内把三次反向串起来的位置，以及把结果交给那一步优化器的契约。"
+   },
+   {
+    "data": "合成梯度 g̃(w_t) = ∇̃f(w_t) + λ·(∇̃h(w_t) − ∇̃h(w'_t))，以及「把它作为本步梯度交给优化器」",
+    "where": "对齐阶段每个优化步，更新之前；式 (3)、Algorithm 1 第 7 行",
+    "provided": "partly",
+    "via": "`transform_gradients`（CLIENT_PRE_STEP）是「替换本步梯度」的动作（`proposals={'gradients': {...}}`），单位化与线性组合可用 `ops.states.norm` / `ops.update.scale_to_norm` / `ops.states.add` / `ops.states.delta`；但它替换的是客户端本地微调的梯度，库里没有服务器侧或离线的对齐训练步可以替换。"
+   },
+   {
+    "data": "AdamW 优化器状态与 T≈10000 步（20 epochs × 5000/10）的步循环",
+    "where": "对齐阶段全程，服务器一侧；Algorithm 1 第 1、8 行",
+    "provided": "no",
+    "via": "插件没有优化器；`run` 每个位置每轮只调用一次，`ctx.state` 只跨位置、跨轮保留，`round_state`/`step_state` 在作用域结束时清空，没有 epoch/step 循环或循环控制。"
+   },
+   {
+    "data": "对齐完成后接种过的检查点 w̃，以及「把它作为服务基础模型」的部署动作",
+    "where": "对齐阶段结束、任何微调请求之前；Appendix C",
+    "provided": "no",
+    "via": "没有任何动作把「训练完成的检查点」装成基础模型：`replace_global`（SERVER_POST_AGGREGATE）替换的是本轮聚合出的 LoRA，`transform_broadcast`（SERVER_DISTRIBUTE）只改本轮下发内容，两者都要求插件自己算出那份 state。"
+   },
+   {
+    "data": "（可选变体 Vaccine+Booster）embedding 上的对齐损失梯度 ∇_e f(w)，用于求 ϵ* = ρ·∇_e f/‖∇_e f‖",
+    "where": "对齐阶段每个优化步、前向之前；Appendix F 式 (6)、Algorithm 2 第 3 行",
+    "provided": "no",
+    "via": "`ModelHandle` 只给前向结果与对参数的梯度（losses/hidden/activations/per_sample_gradients/logprob/generate），没有对输入 embedding 的反向；`transform_loss` 发生在前向之后，`edit_samples` 改的是文本样本。"
+   }
+  ],
+  "external_state": [
+   "对齐数据集：约 5000 条有害提示—安全回答对，来自 BeaverTails 的扩充版本（Section 5.1、Appendix B）",
+   "有害数据集：约 5000 条有害提示—有害回答对，与用户微调数据中的有害样本同分布但样本不同（Section 5.1、Table 8）",
+   "待接种的基座模型权重 w（Llama2-7B 默认，另有 Gemma2-9B、Qwen2-7B）与对齐用 LoRA 配置（rank 32、alpha 4）",
+   "AdamW 优化器状态、两份额外梯度缓存与一个有害 batch 的激活（Table 5：对齐峰值显存 57.86GB，比 SFT 多约 8.53GB）",
+   "接种产物 w̃ 本身，以及用 w̃ 替换服务基础模型的部署动作（Appendix C：之后微调阶段仍是普通 SFT）",
+   "评测侧、不属于防御本体：BeaverTails moderation model（算 HS）、AlpacaEval/ChatGPT 评分（Appendix B）"
+  ],
+  "missing_runtime": [
+   {
+    "what": "训练之外（outside_training）的位置：11 个 Stage 全部是一轮联邦训练内的位置（SERVER_DISTRIBUTE … SERVER_POST_AGGREGATE），没有「上线之前的一次性对齐训练」。而且 `check_contract` 对空的 `at` 直接抛 ContractError（“`at` must be a Stage or a tuple of Stages”），所以连一个只报告的声明式空壳也无法以「无位置」的形式存在。",
+    "blocks": "Algorithm 1 的整个 for t ∈ T 循环（步骤 1–10）无处挂载。"
+   },
+   {
+    "what": "插件不拥有训练循环、优化器与步状态：`run` 每个位置每轮调用一次，`ctx.state` 只跨轮保留，`round_state`/`step_state` 在作用域结束时清空，没有 AdamW 状态、没有 epoch/step 循环。",
+    "blocks": "步骤 10（优化器更新）与 T 步对齐训练本身。"
+   },
+   {
+    "what": "服务器侧没有数据类别（KIND_SIDE['data']='client'）且默认没有模型：防御方自己的对齐/有害数据没有可读视图，服务器 `model_handle` 需防御方自备并传入。",
+    "blocks": "步骤 1–2 的取 batch，以及步骤 4、5、8 在服务器一侧的梯度计算。"
+   },
+   {
+    "what": "没有「安装一个训练完成的检查点」的动作：`replace_global` 只接受本轮聚合出的 LoRA state，`transform_broadcast` 只改本轮下发内容，二者都要求插件自己算得出那份 state。",
+    "blocks": "步骤 10 的输出 w̃ 及其效果（之后所有微调请求共享该基础模型）。"
+   },
+   {
+    "what": "同一优化步内三次前向/反向的契约：一次 `run` 调用里可以多跑几次 `model_handle`，但没有任何视图把「本步的宿主梯度」与「插件另算的两个梯度」绑在同一次参数更新上；CLIENT_PRE_STEP 的 `gradients` 属于客户端本地训练，服务器侧没有对应的训练步。",
+    "blocks": "步骤 5–8 的三次梯度及其在同一优化步里的组合，亦即 g̃ 真的用于论文那次对齐训练。"
+   },
+   {
+    "what": "在 forward 之前改写输入 embedding 的动作：`edit_samples` 改文本、`transform_loss` 在 forward 之后、`ModelHandle` 只提供前向结果与对参数的梯度。",
+    "blocks": "可选变体 Vaccine+Booster 的步骤 3（不影响纯 Booster 的判断）。"
+   }
+  ],
+  "deviations": [
+   "没有做任何移植，因此没有改写可报告；下面是判定依据与几个被否掉的做法。",
+   "插件文件按规则 8 只留一份说明、不定义任何可运行对象，测试文件留空；报告里的 `plugins` 为空。这不是省略：`check_contract` 要求 `at` 至少含一个 Stage，而所有 Stage 都在一轮训练之内，所以库里不存在一个能承载该方法的插件声明（上一轮把空壳写成 `at = ()` 正是因此挂载失败）。",
+   "步骤归属：1、2（为离线对齐训练取 batch）、4（普通训练本来就会算的对齐损失梯度）、10（AdamW 更新）按规则 3 不属于插件，steps_outside=4；3、5、6、7、8、9 是防御计算本身（嵌入扰动、两次有害梯度、归一化、扰动权重、合成），库里没有位置，steps_ported=0（4+0+6=10）。",
+   "被否掉的替代一：在 CLIENT_PRE_STEP 用 `transform_gradients` 把 g̃ 写成对客户端本地梯度的正则项。机制上可写（`gradients` + `model_handle.per_sample_gradients` + `ops.states.add` / `ops.update.scale_to_norm`），但 (a) 那是论文 Appendix H 明确留作未来方向的联邦扩展，论文没有给出算法；(b) 它不产出接种过的 w̃；(c) ∇̃f 从防御方对齐数据变成客户端本地数据。这是另一种方法，不算移植。",
+   "被否掉的替代二：在库外把 Booster 跑完，把 w̃ 当 resource 交进来，用 `transform_broadcast` / `replace_global` 下发——十个步骤仍全在库外，属于搬运而不是移植。若强行为它声明一个可挂载的对象，最接近的落点也只有 SERVER_DISTRIBUTE（一次性 `transform_broadcast`）或 SERVER_POST_AGGREGATE（`replace_global`），两步都需要插件自己算出 w̃，而 w̃ 在库内算不出来。",
+   "论文的 w 是完整权重而库只经手 LoRA state；论文实验的可训练参数也是 LoRA（rank 32、alpha 4），所以「因子空间」本身不是障碍，障碍是位置、数据与训练循环。",
+   "没有发现缺的小算子：步骤 6 的单位化与步骤 9 的线性组合用 `ops.states.norm` / `ops.update.scale_to_norm` / `ops.states.add` / `ops.states.delta` 就够，故 missing_ops 与 new_helpers 为空；卡点是运行时位置与数据，而不是算子。"
+  ],
+  "open_choices": [
+   "（未实现，故未选定）‖∇̃h(w_t)‖ 的作用域：全部可训练参数展平后的全局 L2，还是逐层/逐张量范数；论文未说明。",
+   "（未实现，故未选定）扰动与归一化覆盖哪些参数：实验里是 LoRA 适配器，是否含 embedding、LayerNorm，论文未说明。",
+   "（未实现，故未选定）h(w) 的掩码与归约：有害回答的哪些 token 参与交叉熵、prompt 是否做 label masking、mean 还是 sum，论文未说明。",
+   "（未实现，故未选定）对齐 batch 与有害 batch 是否配对、采样是否可复现（种子/顺序/是否放回），论文未说明。",
+   "（未实现，故未选定）g̃ 与 AdamW 的结合方式：g̃ 是否直接作为 AdamW 的梯度、是否需偏差校正；论文只说可由 SGD/ADAM 求解。",
+   "（未实现，故未选定）‖∇̃h(w_t)‖ 接近 0 时的数值处理；论文未说明。",
+   "（未实现，故未选定）若走联邦改写，∇̃f 取宿主当步梯度还是另跑一次对齐 batch 的前向/反向。"
+  ],
+  "needs_from_authors": [
+   "对齐/有害数据集的构造与划分脚本（BeaverTails 扩充版；论文只给 HF 入口 anonymous4486/repnoise_beavertail）。",
+   "两个 batch 的采样实现：是否放回、是否打乱、随机种子与数据顺序，论文未说明。",
+   "h(w) 的 label masking 与损失归约实现（是否只对 response token 求交叉熵）。",
+   "‖∇̃h(w_t)‖ 的范数作用域与扰动实际覆盖的参数集合（是否只 LoRA）。",
+   "Vaccine+Booster 的 ρ 取值与 Algorithm 2 的实现细节（论文未给该变体的 ρ）。",
+   "式 (3) 与 AdamW 组合的实现细节（g̃ 是否被直接交给优化器）。"
+  ],
+  "confidence": "high",
+  "confidence_reason": "论文自己把方法定位在对齐阶段、集中式、无客户端/轮次/聚合，并把联邦扩展明确留作 Appendix H 的未来方向；库的 11 个 Stage 按定义全部位于一轮联邦训练之内，插件不拥有训练循环、优化器或基础检查点，也没有安装训练完成检查点的动作，而且 `check_contract` 拒绝空的位置列表，因此 Algorithm 1 的十个步骤没有一步能落在插件里，连一个无位置的声明式空壳都不成立。唯一可争之处是「把 g̃ 写成 CLIENT_PRE_STEP 的 transform_gradients」，但那是论文未给出的联邦变体，且不产出 w̃、语义与论文不同，判为另一种方法而非移植。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "Booster",
+    "name": "booster",
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 66
+   }
+  ],
+  "contract": false,
+  "docstring": true,
+  "tests": "none",
+  "errors": [
+   "Booster: cannot be mounted: IndexError: tuple index out of range"
+  ],
+  "plugin_lines": 81
+ },
+ "status": "not_expressible",
+ "tokens": 199870,
+ "cache_read_tokens": 1618944,
+ "seconds": 447.0
+}

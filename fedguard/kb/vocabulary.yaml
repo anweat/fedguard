@@ -1,0 +1,101 @@
+# The stable skeleton of the knowledge base: what exists in federated LoRA fine-tuning, who can touch it,
+# and the words every entry has to use. Entries are refused if they use anything not defined here.
+# Changing this file is a format change (bump format_version); adding entries is a content change.
+format_version: "0.1.0"
+
+artifacts:
+  samples:        {side: client, kind: data,           zh: 本地样本,           modified_by: [mask_samples, edit_samples]}
+  received:       {side: client, kind: received_model, zh: 收到的全局 LoRA,    modified_by: [transform_received]}
+  step_loss:      {side: client, kind: loss,           zh: 步内批次与损失（反向传播之前）, modified_by: [transform_loss]}
+  gradients:      {side: client, kind: gradients,      zh: 步内梯度,           modified_by: [transform_gradients]}
+  trace:          {side: client, kind: train_trace,    zh: 步内 LoRA 与训练标量, modified_by: []}
+  local_update:   {side: client, kind: local_update,   zh: 本地更新,           modified_by: [transform_update]}
+  uploads:        {side: server, kind: uploads,        zh: 上传,               modified_by: [transform_update, select_and_weight]}
+  aggregate:      {side: server, kind: aggregate,      zh: 聚合结果,           modified_by: [replace_global, select_and_weight]}
+  outgoing:       {side: server, kind: outgoing,       zh: 下发内容,           modified_by: [transform_broadcast]}
+  channel:        {side: both,   kind: reports,        zh: 通道消息与自报值,   modified_by: []}
+  history:        {side: both,   kind: history,        zh: 历史,               modified_by: []}
+
+# A coordinate is <artifact>/<access>/<granularity>: what is read, how it is obtained, at which grain.
+# `via: model_handle` marks accesses that need forward or backward passes of the model.
+coordinates:
+  samples/manifest/sample:            {zh: 样本清单（哈希、来源、长度）}
+  samples/text/sample:                {zh: 样本文本}
+  samples/hidden_state/sample:        {via: model_handle, zh: 样本的隐藏状态}
+  samples/activation/sample:          {via: model_handle, zh: 样本在指定子模块的激活}
+  samples/loss/sample:                {via: model_handle, zh: 逐样本损失}
+  samples/gradient/sample:            {via: model_handle, zh: 逐样本梯度}
+  samples/text_logprob/word:          {via: model_handle, zh: 文本的对数概率（可逐词删除比较）}
+  received/factors/module:            {zh: 收到的 LoRA 因子}
+  received/change_since_last/module:  {zh: 与上次收到的相比的变化}
+  step_loss/batch_loss/step:          {zh: 宿主算出的批损失}
+  step_loss/second_source_loss/step:  {zh: 同一模型在另一份数据上的损失（多一次前向）}
+  step_loss/per_sample_gradient/sample: {zh: 训练步内的逐样本梯度（每个样本一次反向）}
+  step_loss/parameters/parameter:     {zh: 可训练参数本身（供依赖权重的损失项使用）}
+  gradients/batch_gradient/parameter: {zh: 批梯度}
+  gradients/parameter_value/parameter: {zh: 优化器更新前的参数值}
+  trace/scalars/step:                 {zh: 训练步标量}
+  trace/factors/step:                 {zh: 训练步后的 LoRA 因子}
+  local_update/factors/module:        {zh: 上传前的本地 LoRA 因子}
+  local_update/aux_gradient/module:   {via: model_handle, zh: 本地更新相对辅助样本梯度的方向}
+  uploads/roster/client:              {zh: 本轮有哪些客户端上传}
+  uploads/factor_delta/client:        {zh: 上传相对下发的因子差}
+  uploads/product_delta/client:       {zh: 上传相对下发的乘积差（不展开，按 Gram 计算）}
+  uploads/module_delta/client:        {zh: 指定模块的因子差}
+  uploads/probe_behavior/client:      {via: model_handle, zh: 加载某客户端上传后模型在探针上的行为}
+  aggregate/weights/client:           {zh: 聚合名单与权重}
+  aggregate/result/model:             {zh: 聚合后的全局 LoRA}
+  outgoing/factors/recipient:         {zh: 即将下发的 LoRA，按接收方}
+  channel/self_reported/client:       {zh: 客户端自报的数值}
+  channel/message/client:             {zh: 通道上的小型消息}
+  channel/tensor/client:              {zh: 通道上的张量}
+  history/features/round:             {zh: 此前各轮的特征}
+
+# What an adversary may control. `modifies`: the artifacts that control reaches directly.
+capabilities:
+  local_data:       {zh: 控制某些客户端的本地数据,       modifies: [samples]}
+  local_training:   {zh: 控制某些客户端的本地训练过程,   modifies: [step_loss, gradients, trace, local_update]}
+  upload_content:   {zh: 控制某些客户端上传的内容,       modifies: [local_update, uploads, channel]}
+  aggregation:      {zh: 控制服务器的聚合,               modifies: [aggregate]}
+  distribution:     {zh: 控制下发给客户端的模型,         modifies: [outgoing, received]}
+  base_model:       {zh: 控制或事先改动基座模型,         modifies: []}
+  collusion:        {zh: 多个受控客户端协同,             modifies: []}
+  defense_knowledge: {zh: 知道防御的算法与参数,          modifies: []}
+  query_access:     {zh: 能查询训练后的模型,             modifies: []}
+
+goals:
+  backdoor:       {zh: 植入后门}
+  safety_removal: {zh: 破坏安全对齐}
+  untargeted:     {zh: 降低模型可用性}
+  privacy:        {zh: 窃取训练数据或成员信息}
+  free_riding:    {zh: 不贡献而获益}
+  other:          {zh: 其他}
+
+tactics:
+  observe:   {zh: 观测}
+  detect:    {zh: 检测}
+  isolate:   {zh: 隔离（排除或降权）}
+  constrain: {zh: 约束（裁剪、加噪、近端、稳健聚合）}
+  sanitize:  {zh: 净化（改样本、改更新、改收到的模型）}
+  repair:    {zh: 修复（聚合之后）}
+
+trust:
+  self_client:      {zh: 运行插件的客户端自己是诚实的}
+  server:           {zh: 服务器是诚实的}
+  client_majority:  {zh: 多数客户端是诚实的}
+  reference_data:   {zh: 防御方持有可信的参考数据或参照}
+
+status:
+  experimental: {zh: 写了，只有单元测试}
+  tested:       {zh: 在真实模型上端到端跑通}
+  stable:       {zh: 有场景证据且参数已针对 LoRA 校准}
+  deprecated:   {zh: 已被替代}
+  unsupported:  {zh: 收录，但运行时目前表达不了}
+
+# Evidence that a defense implementation counters a threat technique.
+evidence_levels:
+  0: {zh: 候选，仅由制品相交推出}
+  1: {zh: 原论文声称有效}
+  2: {zh: 在本库运行时里端到端跑通}
+  3: {zh: 在场景中有效果且无攻击对照的误伤可接受}
+  4: {zh: 在知道防御参数的攻击者场景下仍有效果}

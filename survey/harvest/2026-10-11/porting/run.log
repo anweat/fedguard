@@ -1,0 +1,11 @@
+{"key": "rieger2022deepsight", "status": "passed", "tokens": 5018995, "seconds": 625.8}
+{"key": "ax2301.09508", "status": "passed", "tokens": 4046416, "seconds": 550.3}
+{"key": "ax2210.07714", "status": "passed", "tokens": 3634742, "seconds": 620.8}
+{"key": "ax2305.05506", "status": "passed", "tokens": 3372147, "seconds": 567.2}
+{"key": "ax2609.37367", "status": "passed", "tokens": 2514046, "seconds": 602.3}
+{"key": "ax2411.17453", "status": "budget_reached", "tokens": 0, "seconds": 0}
+{"key": "ax2608.06795", "status": "budget_reached", "tokens": 0, "seconds": 0}
+{"key": "shen2024seal", "status": "budget_reached", "tokens": 0, "seconds": 0}
+{"key": "huang2024vaccine", "status": "budget_reached", "tokens": 0, "seconds": 0}
+{"key": "xie2024gradsafe", "status": "budget_reached", "tokens": 0, "seconds": 0}
+summary.md written; ledger: 18,586,346 tokens of 2,000,000

@@ -1,0 +1,199 @@
+{
+ "key": "ax2609.37367",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 74674,
+    "outputTokens": 124620,
+    "cacheReadTokens": 2314752,
+    "cacheWriteTokens": 0,
+    "totalTokens": 2514046
+   },
+   "seconds": 602.3,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 87381,
+ "report": {
+  "key": "ax2609.37367",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "chorus",
+    "class": "Chorus",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads",
+     "model_handle"
+    ],
+    "resources": [
+     "probe_pool",
+     "trigger_words",
+     "refusal_phrases"
+    ],
+    "acts": [
+     "select_and_weight"
+    ]
+   }
+  ],
+  "steps_total": 17,
+  "steps_ported": 12,
+  "steps_outside": 3,
+  "ops_used": [
+   "fedguard.ops.sampling.subsample",
+   "fedguard.ops.text.split_words"
+  ],
+  "new_helpers": [
+   {
+    "name": "insert_trigger",
+    "lines": 7,
+    "generic": false,
+    "what": "Algorithm 2 的 INSERTTRIGGER：把 trigger 词插到指令的一个均匀随机词边界之间。"
+   },
+   {
+    "name": "refusal_rate",
+    "lines": 6,
+    "generic": false,
+    "what": "Stage 1a 的 s_(i→j)：回答里含任一拒答短语（小写子串匹配）的比例。"
+   },
+   {
+    "name": "majority_reject",
+    "lines": 3,
+    "generic": true,
+    "what": "Algorithm 3 的投票规则：池化分数中严格多数 > eta 才拒绝，平局接受。"
+   },
+   {
+    "name": "span_counts",
+    "lines": 12,
+    "generic": true,
+    "what": "Algorithm 4 的 span 统计：按 w_min、r_min 统计一个生成缓冲上的词序列，一条生成对同一 span 只计一次。"
+   },
+   {
+    "name": "prune_nested",
+    "lines": 17,
+    "generic": true,
+    "what": "Algorithm 4 的嵌套族去重：按计数降序、长度降序保留，含空间填充后的词序列包含判断（避免 was her 落在 he was here 里这类假嵌套）。"
+   },
+   {
+    "name": "select_candidates",
+    "lines": 10,
+    "generic": true,
+    "what": "Algorithm 5 第 2-3 行：计数最高的 K−1 条（并列先长）∪ 最长串，至多 K 条。"
+   },
+   {
+    "name": "render_prompt / format_demo / format_query",
+    "lines": 8,
+    "generic": false,
+    "what": "ICL prompt 模板（三条示例 + 带 trigger 的 query）与可移动性上下文的 with/without 两个渲染；论文说沿用 ICLSCAN 模板但未重述。"
+   }
+  ],
+  "missing_ops": [],
+  "missing_runtime": [
+   {
+    "what": "一个 upload 没有共同接收者，也没有接收者之间的通道。SERVER_RECEIVE 上每个 upload 只有一个接收者（服务器），R_j = {i}，没有对象可以跑 EXCHANGESCORES 与 EXCHANGESTRINGS；池化集合 V_j、C_j 只能是接收者自己的值。库里的消息通道（messages/attachments、CLIENT_ANNOUNCE + SERVER_EXCHANGE）是客户端↔服务器、只传小记录，连不到“同一个适配器的其它接收者”，而星形拓扑里根本不存在这种角色。",
+    "blocks": "步骤 8（交换探针分数）与步骤 11（交换候选字符串）完全做不了；步骤 9 的严格多数投票只能以 |R_j|=1 调用，退化为“自己一个分数过 η 就拒绝”，论文靠池化得到的抗串通/抗单点误判没有移植过来。这也是 17 步里 12 移植 + 3 不属于插件之后剩下的 2 步。"
+   },
+   {
+    "what": "ModelHandle.generate(prompts, max_new_tokens) 只有贪心解码：没有 beam search、没有 length penalty/early stopping，也没有探针要的 temperature/top-p/top-k。",
+    "blocks": "步骤 10 的 H 条采集生成拿不到论文的 B=16 beam（只取最高分 beam），步骤 7 的探针采样也退化成贪心。论文报告 beam search 在 51.6% 的 prompt 上恢复攻击者目标串而采样只有 13.5%，所以第 10 步的召回率达不到论文值。"
+   },
+   {
+    "what": "服务器一侧默认没有可运行的模型：SERVER_RECEIVE 只有在部署把 probe= 传给 OpenFedLLMGuard 时才有 model_handle，且仓库自带的服务器端句柄 fedguard.adapters.hf_probe.HFProbe 只实现 ProbeView.score，没有 generate 与 logprob。",
+    "blocks": "默认部署下步骤 7、10、13（探针生成、采集生成、可移动性打分）全部做不了；插件因此声明 needs={\"uploads\",\"model_handle\"}，要求部署提供一个完整 ModelHandle（如 HFModelHandle 包住基座模型）。"
+   },
+   {
+    "what": "服务器不持有“节点自己这一轮的适配器” θ_i，没有任何数据类别对应它（客户端侧的 local_update 到不了服务器）。",
+    "blocks": "步骤 12-14 的可移动性参照只能用本轮广播基座 uploads.base_state()，见 deviations；论文的 θ_i 是诚实节点自己本地训练出来的干净模型。"
+   },
+   {
+    "what": "测试侧的 harness.server_guard 不传 probe（harness.server_round 因此无法驱动任何声明 model_handle 的服务器插件）。",
+    "blocks": "不影响插件本身，但移植时必须在测试里自建 OpenFedLLMGuard(GuardRunner(...), probe=...) 并重写一遍 server_round 的聚合循环（见 test_port.py 的 _guard/_round）。"
+   }
+  ],
+  "deviations": [
+   "论文是去中心化 D-PSGD、没有服务器：节点 i 映射为星形联邦的服务器，邻居适配器映射为本轮 uploads，model_handle 就是把这些 uploads 载入的模型；“服务器聚合”对应 Algorithm 1 第 16-17 行，做成 select_and_weight（被接受者权重 1.0，被拒者 excluded）。",
+   "θ_i 没有服务器对应物，用本轮广播基座 uploads.base_state() 作可信参照；这保持了“参照模型没有背下后门目标”的语义，但它不是接收者自己训练的适配器，且在多轮攻击后基座自身可能已被污染。",
+   "论文的等权平均包含节点自己：θ^(t+1)_i = 1/(|A|+1)(θ_i + Σ_{j∈A} θ_j)。服务器的聚合里没有“自己”这一项，插件只对 kept 客户端等权，基座留在聚合之外；拒绝造成的不对称性与论文一致（只保持行随机）。",
+   "步骤 8、11 的两次交换无法表达（见 missing_runtime），因此 17 步里移植 12 步、按规则 3 不属于插件 3 步（步骤 1 数据划分与探针池、4 本地训练、5 广播与接收）、无法移植 2 步。",
+   "采集缓冲、候选计数表、信任状态机都用 ctx.state（按客户端 id 键）跨轮保留；候选计数只增不减，与论文“never reset”一致。",
+   "部署必须给服务器侧一个完整的 ModelHandle（OpenFedLLMGuard(probe=...)），否则 needs 里的 model_handle 在 SERVER_RECEIVE 会 LookupError，插件直接报错。",
+   "所有模型前向都通过 handle.lora(state) 载入对应适配器：探针与采集用 θ_j，可移动性先 θ_i 后 θ_j，两者共用同一批 prompt（论文 Algorithm 5 第 15 行的要求）。"
+  ],
+  "open_choices": [
+   "词切分用 fedguard.ops.text.split_words（空白切分、标点附着），论文只说 word sequences。",
+   "trigger 插在第三条指令与 query 的一个均匀随机词边界之间，论文的“两个随机词之间”没有更细的规定。",
+   "span = 一条生成里长度 ≥ w_min 的任意连续词序列；同一条生成对同一 span 只计一次；缓冲为最近 W_h 轮的 W_h·H 条生成。",
+   "池化计数在 |R_j|=1 时就是接收者自己的 C_(i→j)（步骤 10 的 C_j 无从求和）。",
+   "y^max_j 取词数最多的串（并列先比计数再比字典序）；“计数最高的 K−1 条”并列时先比词数再比字典序；论文只写了 ties: longer first。",
+   "可移动性 prompt 每轮重抽、轮内固定，θ_i 与 θ_j 用完全相同的 prompt 与第三条示例的位置 π（论文只说 within a round fixed，采集 prompt 的种子未给）。",
+   "Δ_i(θ_i,y) 对 Y_j 里每个候选只算一次并在比值里复用（论文没说是否缓存）。",
+   "候选集为空（缓冲不足、过滤后为空、或 Δ_i(θ_i,y^max_j) ≤ 0）时 MOVABILITYTEST 返回 FALSE，即本轮不拒绝；论文只写了 Δ_i(θ_i,y^max_j) ≤ 0 要跳过 j，其余未写明。",
+   "一次接受把 TRUSTED 的连续拒绝计数清零；SUSPECTED 在 W_ej 轮内累计 k_ej 次拒绝才 EJECTED，否则窗口到期回到 TRUSTED 并重新并入；被 EJECTED 跳过的轮次不计入 W_ej 窗口（论文未写死计数器语义）。",
+   "EJECTED 的 re-check 若再次被拒，保持 EJECTED 并从该轮重新计 W_re；一次干净的 re-check 只降回 SUSPECTED，本轮仍不并入（与论文一致）。",
+   "初始信任状态取 TRUSTED（论文只写 TRUSTED 连续被拒 k_sus 次变 SUSPECTED，未明写初值）。",
+   "ICL prompt 模板论文未重述（说沿用 ICLSCAN），这里用 Alpaca 风格的 ### Instruction / ### Response 块，y_ref、y_c 用 Appendix C 原文。",
+   "第一次见到的 upload 立即 screening；SUSPECTED 的邻居每轮都 screening，EJECTED 的每 W_re 轮一次。"
+  ],
+  "needs_from_authors": [
+   "ICLSCAN 的完整 prompt 模板（论文 §3.2.1/Appendix C 只说沿用它的 prompt format）。",
+   "Appendix C 的 18 条拒答短语完整列表（正文只举了 do not have the capability / cannot follow the given instruction / i'm sorry, but 三条）。",
+   "公开的 10000 个 5–12 字母词表的具体内容，以及抽 trigger 与生成 Stage 1a prompt 用的随机种子。",
+   "采集 prompt 的随机种子（论文只说每轮重抽）。",
+   "span 枚举里“词”的实际切分实现，以及嵌套族贪心在非链状、部分重叠时的完整取舍规则（作者代码里的写法）。",
+   "信任状态机的实现细节：接受是否清零连续计数、W_ej 窗口如何随轮次滑动、被 EJECTED 跳过的轮次是否计入窗口。"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "插件用真实库跑过：run_port.py 的静态检查两项均为空、契约（server 侧、两个位置、needs/resources/acts）成立、类说明五个小节齐全，6 个合成 ModelHandle 机制测试全部通过（不加载模型）：背下目标的适配器被可移动性比值拒绝且不进聚合、拒答的适配器被 Stage 1a 拒绝、诚实轮不动、信任状态机按 k_sus/k_ej/W_ej/W_re 走并做 re-check、SUSPECTED 在干净窗口后回到 TRUSTED 重新并入。Stage 1b 的判据（logprob 增益比值 < c）与信任状态机是逐行实现的，这部分我有较高把握。但三处关键改动没有论文数值可验：两次共同接收者交换无法表达（投票退化为 |R_j|=1）、采集与探针只能用贪心解码（论文 beam 51.6% vs 采样 13.5%）、参照模型 θ_i 换成本轮广播基座；加上论文未给的模板/种子/短语表，检测率与误拒率是否接近论文完全未知。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "Chorus",
+    "name": "chorus",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "model_handle",
+     "uploads"
+    ],
+    "resources": [
+     "probe_pool",
+     "refusal_phrases",
+     "trigger_words"
+    ],
+    "acts": [
+     "select_and_weight"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 219
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 323,
+  "test_lines": 209,
+  "test_summary": "6 passed in 1.02s"
+ },
+ "status": "passed",
+ "tokens": 199294,
+ "seconds": 602.3,
+ "cache_read_tokens": 2314752
+}

@@ -1,0 +1,343 @@
+{
+ "key": "ax2103.05633",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 96496,
+    "outputTokens": 158315,
+    "cacheReadTokens": 3561856,
+    "cacheWriteTokens": 0,
+    "totalTokens": 3816667
+   },
+   "seconds": 665.1,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 87896,
+ "report": {
+  "key": "ax2103.05633",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "pol_prover",
+    "class": "PoLProver",
+    "side": "client",
+    "stages": [
+     "client_loss",
+     "client_step",
+     "client_post_train"
+    ],
+    "needs": [
+     "data",
+     "loss",
+     "train_trace",
+     "received_model"
+    ],
+    "resources": [],
+    "acts": []
+   },
+   {
+    "name": "pol_verifier",
+    "class": "PoLVerifier",
+    "side": "server",
+    "stages": [
+     "server_receive"
+    ],
+    "needs": [
+     "uploads",
+     "reports",
+     "model_handle"
+    ],
+    "resources": [
+     "client_data",
+     "init_spec"
+    ],
+    "acts": []
+   }
+  ],
+  "steps_total": 14,
+  "steps_ported": 8,
+  "steps_outside": 6,
+  "ops_used": [
+   "fedguard.ops.states.add",
+   "fedguard.ops.states.flatten",
+   "fedguard.ops.states.unflatten"
+  ],
+  "new_helpers": [
+   {
+    "name": "_cdf/_ks_statistic/_ks_pvalue",
+    "lines": 42,
+    "generic": true,
+    "what": "单样本 Kolmogorov-Smirnov 统计量与渐近 p 值（支持 normal/uniform/退化为点质量）；fedguard.ops 没有任何假设检验，scipy 又不可导入。"
+   },
+   {
+    "name": "_state_distance",
+    "lines": 18,
+    "generic": true,
+    "what": "两个 LoRA 状态字典之间的 l1/l2/linf 距离（论文的 d1、d2）。states.delta + states.norm 只能给 l2，且没有现成的“两个状态之间的距离”算子。"
+   },
+   {
+    "name": "_int_value/_int_list/_float_list/_str_list/_record_bytes",
+    "lines": 58,
+    "generic": true,
+    "what": "把通道上收到的、一律不可信的小记录安全地读成 int/float/str 列表，并保守估计消息体积以免超过 MESSAGE_LIMIT_BYTES。"
+   },
+   {
+    "name": "_windows/_top_q",
+    "lines": 20,
+    "generic": false,
+    "what": "按“窗口结束步所在的 epoch”分组，取每个 epoch 前 Q 大的 k 步更新窗口（论文 P9/P10 的排序与预算选择）。"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "hypothesis_test",
+    "what": "fedguard.ops 没有 KS 检验或任何分布检验；论文 P8 需要逐层单样本 KS 与 p 值（scipy 不在可导入列表里）。"
+   },
+   {
+    "name": "state_distance",
+    "what": "没有“两个 LoRA 状态之间的距离”算子；states.delta 与 states.norm 组合只覆盖 l2，论文的 d1/d2 还允许 l1、linf（cosine 未实现）。"
+   },
+   {
+    "name": "sample_hash",
+    "what": "插件不能导入 hashlib，也没有可导入的文本哈希算子（fedguard.views.client.sample_hash 存在，但不在规则 5 允许插件导入的清单里）；验证者无法对披露的文本重算 h(D[I_t])，只能比对宿主给出的哈希，或与 defense 方预存的哈希表比对。"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "每一步的批次身份 I_t（这一步用了哪些样本）",
+    "where": "客户端，每个训练步：前向之后、反向之前（CLIENT_LOSS）",
+    "provided": "partly",
+    "via": "ctx.loss.sample_ids() 给出该批每一行的样本哈希，但只有 trainer extension 才提供 CLIENT_LOSS，普通 Trainer callback 到不了这一点，且适配器没有 identify 时抛 LookupError；数据集索引要靠 ctx.data.manifest 的 hash→index 自己映射，哈希本身由宿主算。"
+   },
+   {
+    "data": "每一步之后的权重 W_t",
+    "where": "客户端，每个训练步之后（CLIENT_STEP）",
+    "provided": "yes",
+    "via": "ctx.train_trace.lora()（CPU 副本）。只有 LoRA 因子，没有冻结的基座权重。"
+   },
+   {
+    "data": "每步训练元数据 M_t（优化器种类、学习率、损失）",
+    "where": "客户端，每个训练步（CLIENT_STEP、CLIENT_LOSS）",
+    "provided": "partly",
+    "via": "ctx.train_trace.steps() 里宿主自己 log 的标量（本实现从其中的 lr 字段取学习率）；优化器与调度不是任何视图，插件看不到。"
+   },
+   {
+    "data": "初始权重 W_0 与声称的初始化策略 ζ",
+    "where": "客户端，轮次开始（CLIENT_PRE_TRAIN）或打包时",
+    "provided": "partly",
+    "via": "W_0 = ctx.received_model.state()（CLIENT_POST_TRAIN 也可读）；ζ 不在库里，只能作为插件构造参数由防御方声明。"
+   },
+   {
+    "data": "初始化分布的公开参数（KS 检验的原假设）",
+    "where": "服务器，验证时（SERVER_RECEIVE）",
+    "provided": "no",
+    "via": "库没有这个视图；本实现要求防御方以 resource init_spec 给出每个状态键的分布。"
+   },
+   {
+    "data": "发布证明的通道：检查点、每步数据签名、元数据",
+    "where": "客户端上传前（CLIENT_POST_TRAIN）→ 服务器收到时（SERVER_RECEIVE）",
+    "provided": "partly",
+    "via": "messages（只允许标量/字符串/扁平列表，上限 MESSAGE_LIMIT_BYTES=64 KiB）与 attachments（张量，runner 默认上限 64 MiB）。检查点走 (n_ckpt, d) 张量，哈希与学习率走 messages；没有加密与签名。"
+   },
+   {
+    "data": "验证者手上的训练数据 D（按 I_t 取批次、重算签名）",
+    "where": "服务器，重执行时（SERVER_RECEIVE）",
+    "provided": "no",
+    "via": "原始样本过不了通道（messages 只能扁平标量、attachments 只能张量），也没有服务器侧数据集视图；本实现要求防御方以 resource client_data（client→{样本哈希: 样本}）提供，等于要求服务器持有每个客户端的本地数据。"
+   },
+   {
+    "data": "在验证者一侧重执行一步训练 update(W, D[I_t], M_t)",
+    "where": "服务器，验证时（SERVER_RECEIVE）",
+    "provided": "partly",
+    "via": "服务器侧 model_handle 由防御方自备（可选，probe 参数）；ModelHandle 只有前向/反向原语、没有“训练步/优化器”，本实现用 per_sample_gradients + states.unflatten/add 拼出朴素 SGD 的一步，每样本一次反向（论文是每步一次）。"
+   },
+   {
+    "data": "论文式 (1) 的 update() 本身（含优化器状态）",
+    "where": "客户端训练循环内 / 服务器重执行时",
+    "provided": "no",
+    "via": "没有任何视图暴露优化器或一步更新；带动量、二阶矩、权重衰减的 update 无法复现，只能假定朴素 SGD（论文也要求 update 属于已知可接受算法）。"
+   },
+   {
+    "data": "epoch 边界（每轮步数 S）",
+    "where": "客户端打包时 / 服务器排序时",
+    "provided": "no",
+    "via": "库不告诉插件宿主怎么分 epoch；本实现把它作为插件参数，并由证明自身携带（P9 的按轮排序依赖它）。"
+   },
+   {
+    "data": "松弛阈值 δ 与验证预算 Q",
+    "where": "服务器，验证时",
+    "provided": "no",
+    "via": "论文只给标定方法、不给数值；作为插件构造参数（δ=None 时只报距离、不判 FAIL）。"
+   },
+   {
+    "data": "验签、解密、时间戳或公开账本",
+    "where": "服务器收到时（SERVER_RECEIVE）",
+    "provided": "no",
+    "via": "库没有密钥、加密、签名、账本接口；规则 3 也把密码学协议排除在插件之外。"
+   },
+   {
+    "data": "已验证证明的历史 P_0..P_R（热启动的链式信任）",
+    "where": "服务器，验证之前",
+    "provided": "no",
+    "via": "history 视图只有每客户端每轮的标量特征，原始对象要 recorder 才能读回，也没有“已验证明”的存储；本实现用“第一个检查点必须等于本轮广播基座”做联邦版替代。"
+   },
+   {
+    "data": "证明在轮内与跨轮的存储",
+    "where": "客户端（轮内）与防御方（跨轮）",
+    "provided": "partly",
+    "via": "轮内可放 ctx.round_state 与 attachments（受 64 MiB 上限约束）；跨轮存储库外自理。"
+   }
+  ],
+  "external_state": [
+   "每个客户端的本地训练数据副本（resource client_data）：服务器侧要按样本哈希取回批次才能重执行，这是本移植最重的外部前提，也与联邦学习的隐私前提冲突。",
+   "公开已知初始化策略及其逐键分布参数（resource init_spec），以及 prover 声称的策略名（插件构造参数）。",
+   "标定好的松弛阈值 δ 与验证预算 Q（插件构造参数；论文只给标定方法）。",
+   "每轮步数 S / epoch 长度（插件构造参数，并随证明发布）。",
+   "验证者的密钥对、prover 公钥、时间戳或公开账本（未实现，属密码学协议）。",
+   "已验证明的数据库 P_0..P_R（未实现；联邦版用广播基座相等替代）。",
+   "δ 标定所需的 d_ref（两个独立训练的同架构模型之间的距离，一次性离线测量，库外）。"
+  ],
+  "missing_runtime": [
+   {
+    "what": "通道搬不动原始样本：messages 只允许标量/字符串/扁平列表，attachments 只允许张量，也没有服务器侧数据集视图。",
+    "blocks": "P11 的惰性披露（§V-D1）做不了；P12 的重执行只有在防御方自己持有每个客户端本地数据时才可能。"
+   },
+   {
+    "what": "服务器侧没有“训练步/优化器”，ModelHandle 只给前向与反向原语，且服务器默认没有模型。",
+    "blocks": "P12 只能拼出朴素 SGD 一步（无动量/权重衰减），并且每个样本一次反向而不是每步一次；没有 model_handle 时整步退化为 unverified。"
+   },
+   {
+    "what": "CLIENT_LOSS 只有 trainer extension 会走到；普通 Trainer callback 没有这个点。",
+    "blocks": "P4 的每步数据签名采集不到（本实现会记 None，证明退化为无法重执行）。"
+   },
+   {
+    "what": "插件不能算文本哈希（不可导入 hashlib，也没有可导入的哈希算子）。",
+    "blocks": "P11 无法对披露的数据重算 h(D[I_t])，只能比对宿主产生的哈希或与预存哈希表比对。"
+   },
+   {
+    "what": "消息通道 64 KiB、attachments 默认 64 MiB。",
+    "blocks": "P5/P6 的真实规模（E*S/k 个检查点、E*S 条签名）放不下；本实现在超限时先丢每步签名、再整窗截断，被截断的证明只能 unverified。"
+   },
+   {
+    "what": "服务器没有跨轮的“已验证明”存储（history 只有标量特征，原始对象要 recorder）。",
+    "blocks": "步骤 14 的链式信任查询 P_0..P_R 无法维护，只能用广播基座相等做一次替代检查。"
+   },
+   {
+    "what": "没有任何优化器状态视图（客户端 CLIENT_STEP 只看得到 LoRA 状态，看不到动量/二阶矩）。",
+    "blocks": "论文未定的“优化器状态是否入证明”在库里只能选择“不入”；重执行也因此只能假定朴素 SGD。"
+   },
+   {
+    "what": "没有密钥、加密、签名、时间戳接口。",
+    "blocks": "P6 的加密与签名、P7 的验签解密（规则 3，属密码学协议，本就不该进插件）。"
+   }
+  ],
+  "deviations": [
+   "权重是 LoRA 因子而不是完整模型权重；一份证明只覆盖一轮联邦训练，而不是整段训练（规则 4）。",
+   "论文是单个 prover 与单个 verifier 的协议；这里把客户端当 prover、服务器当 verifier，逐客户端独立验证，论文没有定义多 worker 的聚合流程，插件也不做任何聚合动作。",
+   "批次身份用样本哈希而不是数据集索引（DataView.manifest 是客户端唯一的索引，哈希跨轮稳定）；数据集索引没有出现在证明里。",
+   "重执行假定朴素 SGD（无动量、无权重衰减、无调度），论文要求 update() 来自已知可接受列表。",
+   "重执行用 ModelHandle.per_sample_gradients 的均值代替宿主 batch loss 的梯度：两者只在批内各样本标注 token 数相同时相等。",
+   "初始化 KS 检验按状态字典的每个因子做，而不是论文的按层做。",
+   "联邦版验证者额外要求“第一个检查点等于本轮广播基座”（热启动链式信任的替代，见 §V-D3）；论文的验证者只验分布。",
+   "epoch 长度、k、Q、δ 都来自部署方（论文只给 k 的实验取值、Q 的实验观测与 δ 的标定方法）。",
+   "数据签名校验是与防御方预存的哈希表比对，而不是重算 h(D[I_t])。",
+   "密码学部分（加密、签名、时间戳）未实现；证明以明文消息与张量发布。",
+   "证明超过通道容量时会被截断（先丢签名，再整窗截断），截断事实写在 findings.evidence 里。",
+   "验证结论只报告：FAIL 不剔除、不加权、不回滚任何客户端（论文未定义处置，pipeline 的动作是 report_only）。"
+  ],
+  "open_choices": [
+   "d1、d2 默认取因子空间的 l2 范数，可配 l1/linf；cosine 未实现。",
+   "窗口归属于“结束步所在的 epoch”（end // S），并且显式补刷最后一个 epoch（算法 2 的控制流只在跨入下一 epoch 时刷出，最后一个 epoch 永远不会被验证）。",
+   "init_spec 里没有的策略名判 FAIL（§V-D4 的已知集合是封闭的）；策略里没有覆盖的键跳过。",
+   "窗口的数据签名缺失或哈希不在防御方数据里 → FAIL；窗口无法执行（没有 handle、没有学习率、handle 报错）→ unverified 而不是 FAIL。",
+   "证明必须写明当前轮号，轮号不符判 unverified。",
+   "第一个检查点固定视为 W_0；宿主第 s 步之后的 LoRA 是论文的 W_{s+1}，因此从 t 到 t+k 的窗口重放宿主步 t..t+k-1。",
+   "学习率取 trace 标量 lr，取不到时写 -1.0 作哨兵值（快照超限时也一样）。",
+   "超限保护按 MESSAGE_LIMIT_BYTES 的 3/4 估算：先丢每步签名，再按整窗从尾部截断。",
+   "同一 epoch 内 top-Q 的并列按步号先后取；窗口允许重叠（k 小于窗口长度时论文未说明）。",
+   "第一个检查点与广播基座的相等判据是 l2 距离 ≤ 1e-9。",
+   "插件只发布自己的证明，没有任何密钥材料；哈希列表由插件扁平化后发送（通道不允许嵌套列表）。"
+  ],
+  "needs_from_authors": [
+   "δ 的具体标定（含 d_ref 由谁、以什么成本测）与推荐的 Q、k；论文只给了方法与个别实验观测。",
+   "哈希函数 h、加密方案 enc、时间戳/账本机制的具体选择。",
+   "优化器状态（动量、二阶矩）是否需要进证明。",
+   "k 是否必须整除 S、跨 epoch 边界的 k 步窗口如何切分，以及同一 epoch 内 top-Q 窗口是否允许重叠。",
+   "参考实现如何处理算法 2 漏刷最后一个 epoch、以及算法 1 中 I 的覆盖赋值与 append 不一致这两处伪代码问题。",
+   "层间初始化不独立时是否用 Bonferroni 校正（论文只说“需要时”），以及初始化策略允许集合的完整枚举。"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "代码在本地 torch 环境里被真正执行过：插件与测试都能导入，两侧契约成立，类说明含全部规定小节，静态检查（导入白名单、禁用名/属性）为空，6 个机制测试全通过（诚实证明 success 且不提出任何 decision；篡改检查点、伪造批次哈希、首个检查点不等于广播模型、未知初始化策略各自 FAIL；无服务器模型时 unverified）。但这些结论不覆盖：(1) 官方 verify.py 的运行环境（本地用替身绕过了 pytest/safetensors 之外的差异）；(2) 真实 HFModelHandle 路径（测试里的 model handle 是复现同一梯度函数的替身，真实 per_sample_gradients 的键名/布局与证明状态是否对齐未经验证）；(3) 超限截断分支没有被测试覆盖；(4) 论文的密码学步骤、惰性披露、链式信任与 δ 标定本来就没有可移植的实现。核心的“重执行 + 距离判定”确实在库里跑通了，所以不是 not_expressible，但整份协议只有一半进得来，且重执行依赖两个很重的外部前提（服务器侧模型 + 服务器持有客户端本地数据），因此判 partial。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "PoLProver",
+    "name": "pol_prover",
+    "side": "client",
+    "stages": [
+     "client_loss",
+     "client_step",
+     "client_post_train"
+    ],
+    "needs": [
+     "data",
+     "loss",
+     "received_model",
+     "train_trace"
+    ],
+    "resources": [],
+    "acts": [],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 142
+   },
+   {
+    "class": "PoLVerifier",
+    "name": "pol_verifier",
+    "side": "server",
+    "stages": [
+     "server_receive"
+    ],
+    "needs": [
+     "model_handle",
+     "reports",
+     "uploads"
+    ],
+    "resources": [
+     "client_data",
+     "init_spec"
+    ],
+    "acts": [],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 231
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 565,
+  "test_lines": 174,
+  "test_summary": "6 passed in 0.99s"
+ },
+ "status": "passed",
+ "tokens": 254811,
+ "cache_read_tokens": 3561856,
+ "seconds": 665.1
+}

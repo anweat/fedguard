@@ -1,0 +1,11 @@
+{"key": "rieger2022deepsight", "status": "passed", "tokens": 186691, "seconds": 474.1}
+{"key": "ax2301.09508", "status": "passed", "tokens": 260839, "seconds": 737.5}
+{"key": "ax2210.07714", "status": "passed", "tokens": 243305, "seconds": 645.0}
+{"key": "ax2305.05506", "status": "passed", "tokens": 237630, "seconds": 632.5}
+{"key": "ax2609.37367", "status": "passed", "tokens": 235265, "seconds": 549.0}
+{"key": "ax2411.17453", "status": "passed", "tokens": 196072, "seconds": 527.6}
+{"key": "ax2608.06795", "status": "passed", "tokens": 207062, "seconds": 541.4}
+{"key": "shen2024seal", "status": "passed", "tokens": 164813, "seconds": 341.7}
+{"key": "huang2024vaccine", "status": "passed", "tokens": 65761, "seconds": 121.8}
+{"key": "xie2024gradsafe", "status": "passed", "tokens": 160544, "seconds": 409.5}
+summary.md written; fresh tokens so far: 3,806,081 of 6,000,000

@@ -1,0 +1,4 @@
+== runs/q35_sweep_0.8B/rec_safety_mix/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009223716
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client safety_mix                  client_pre_train            20      0       0      20     0.00  {"added": 11, "secret_words": 0}
+changes: safety_mix: edit_samples=20

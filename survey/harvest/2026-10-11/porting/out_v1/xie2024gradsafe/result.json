@@ -1,0 +1,232 @@
+{
+ "key": "xie2024gradsafe",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 36659,
+    "outputTokens": 41420,
+    "cacheReadTokens": 316416,
+    "cacheWriteTokens": 0,
+    "totalTokens": 394495
+   },
+   "seconds": 164.9,
+   "errors": 0
+  },
+  {
+   "round": 2,
+   "usage": {
+    "inputTokens": 67914,
+    "outputTokens": 38111,
+    "cacheReadTokens": 965632,
+    "cacheWriteTokens": 0,
+    "totalTokens": 1071657
+   },
+   "seconds": 185.5
+  }
+ ],
+ "prompt_chars": 80438,
+ "report": {
+  "key": "xie2024gradsafe",
+  "verdict": "not_expressible",
+  "plugins": [
+   {
+    "name": "gradsafe",
+    "class": "",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "aligned_base_model",
+     "unsafe_gradient_reference",
+     "logistic_probe"
+    ],
+    "acts": [
+     "mask_samples"
+    ]
+   }
+  ],
+  "steps_total": 10,
+  "steps_ported": 0,
+  "steps_outside": 3,
+  "ops_used": [],
+  "new_helpers": [],
+  "missing_ops": [
+   {
+    "name": "row_column_slice",
+    "what": "Slice each 2-D gradient matrix into its row vectors and its column vectors with a stable index order. No fedguard.ops function does this (states.* works on LoRA state dicts, transform.* on vectors). It is a small generic computation and would be a module-level helper in the plugin file, not a library gap - but it sits downstream of the gradient in missing_runtime item 1."
+   },
+   {
+    "name": "per_slice_cosine",
+    "what": "cos(query_slice_i, reference_slice_i) with a different reference per slice, across matrices of different slice lengths. fedguard.ops.geometry.cosine_to(X, ref) compares every row of X against ONE reference vector, so it does not cover this. Also a small generic helper ((X*R).sum(-1) / (norms) plus a zero-norm rule the paper does not give). Also not the blocker."
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "the text of every prompt to be screened, one string per sample",
+    "where": "client side, opening of the round: CLIENT_ANNOUNCE or CLIENT_PRE_TRAIN",
+    "provided": "yes",
+    "via": "the `data` kind: DataView.samples() and DataView.text(index), with DataView.manifest for the sample hashes; `data` is a client-side kind (KIND_SIDE) and both stages expose it (STAGE_KINDS)."
+   },
+   {
+    "data": "the paper's second federated mount: the prompts on the server before they enter training (server_receive)",
+    "where": "server side, SERVER_RECEIVE / SERVER_EXCHANGE",
+    "provided": "no",
+    "via": "the server never sees sample text: KIND_SIDE puts `data` on the client only, and the server stages expose reports / model_handle / history (plus uploads and aggregate at the aggregate stages). The only server-side trace of a prompt would be a per-sample score sent over the channel (messages / attachments, unverified) - and the client cannot compute one either."
+   },
+   {
+    "data": "a tokenizer, or any way for a plugin to turn a prompt string into a batch in the host's own format",
+    "where": "client side, wherever the model is",
+    "provided": "no",
+    "via": "nothing in the reference converts text into model input at the plugin level; a handle tokenizes internally for the methods it offers (its text_of / split_of are fixed by the deployer when the handle is built, not chosen by the plugin). Without a batch dict, LossView.loss_on(batch) cannot be called."
+   },
+   {
+    "data": "a differentiable loss of the constructed (prompt, `Sure`) pair on the aligned base LLM (the paper's standard loss)",
+    "where": "client side, on the side that holds the base model",
+    "provided": "partly",
+    "via": "model_handle.logprob(prompts, targets) matches the pairing semantically but returns floats with no graph; ModelHandle.losses(samples) is forward only; LossView.loss_on(batch) does keep a graph but exists only at CLIENT_LOSS (the trainer extension layer, which a plain Trainer callback never reaches) and expects a host-format batch - see the tokenizer item."
+   },
+   {
+    "data": "dL/dW for every 2-D weight matrix of the frozen base LLM: the gradient the whole method is built on",
+    "where": "client side, wherever the aligned base model lives",
+    "provided": "no",
+    "via": "every gradient interface is scoped to trainable parameters. GradientView keeps only parameters with requires_grad and a gradient; model_handle.parameters(group) is documented as the trainable parameters of a group (PARAM_GROUPS is lora / lora_A / lora_B / last_lora_B / first_lora_B, with no base-weight group) or passing a predicate, and the shipped adapter narrows candidate names to those containing lora_ before applying the predicate, so a predicate cannot reach a frozen base weight; per_sample_gradients takes its parameter list from that same call; LossView.gradients_of is with respect to the trainable parameters whose name passes select."
+   },
+   {
+    "data": "the identity and the 2-D shape of each base weight matrix, in a stable slice order, so a stored reference slice can be matched",
+    "where": "client side",
+    "provided": "no",
+    "via": "model_handle.layout(group) returns LoRA state-dict keys and shapes in the order gradients are concatenated; fedguard.ops.states.flatten / unflatten / stack work on LoRA state dicts too. Even if the gradient item were solved, a reference slice would have no address."
+   },
+   {
+    "data": "the offline Phase I-III artifact: the safety-critical slice index set S at gap threshold 1 and the stored unsafe reference slice for each i in S",
+    "where": "outside the run, before the first round (the paper's own words: one-off preparation, unrelated to any federated round)",
+    "provided": "yes",
+    "via": "`resources` -> ctx.resource(name), which is what the resource mechanism is for. The paper reports only percentages (11.78% of row slices, 3.53% of column slices at threshold 1, Table 1), so size and serialization are the defender's business."
+   },
+   {
+    "data": "GradSafe-Adapt: the fitted logistic probe over |S|-dimensional cosine features",
+    "where": "outside the run (the paper's offline domain adaptation on the ToxicChat train split)",
+    "provided": "yes",
+    "via": "`resources` plus fedguard.ops.probe.apply_logistic(probe, X); fedguard.ops.probe.fit_logistic builds exactly the weight / bias / mean / scale dict that can be carried as a resource."
+   },
+   {
+    "data": "GradSafe-Adapt: labelled target-domain prompts, and a route for the labels to the side that fits the probe",
+    "where": "outside the run; in a federation the labels sit with the clients",
+    "provided": "partly",
+    "via": "the only cross-side path is the channel (messages for small records, attachments for tensors, both unverified) and there is no cross-client data sharing; the paper does not say how labels are gathered, so a per-client offline fit or a defender-side labelled set are the only shapes the library supports."
+   },
+   {
+    "data": "the action that follows a detection: screening a harmful prompt out before it enters training",
+    "where": "client side, CLIENT_PRE_TRAIN",
+    "provided": "yes",
+    "via": "`mask_samples` (permitted at CLIENT_PRE_TRAIN only) with proposals = {mask: iterable of sample hashes}; DataView.manifest supplies SampleRecord.hash and ClientGuard.kept_indices() / training_samples() apply it. This also fixes the mount."
+   },
+   {
+    "data": "one forward and one backward pass of the aligned 7B base model per screened prompt",
+    "where": "client side, inside the plugin invocation",
+    "provided": "partly",
+    "via": "`model_handle` grants model passes and ModelHandle counts them in `cost`; per_sample_gradients does one backward per sample and gradients_of one per call. The passes exist; the object they would have to be taken against (the frozen base weights) is what is missing - see missing_runtime."
+   }
+  ],
+  "external_state": [
+   "The aligned base LLM (Llama-2-7b-chat-hf in the paper) with gradient access on the plugin side. Alignment is part of the asset, not a detail (Table 7: AUPRC 0.936 aligned, 0.574 unaligned), and it must admit backward passes at all - a quantized or otherwise frozen PEFT deployment may not.",
+   "The four reference prompts (2 unsafe + 2 safe, verbatim in Appendix A.2): inputs to the offline Phase I-III, not used at run time.",
+   "The Phase I-III output: the slice index set S at gap threshold 1 and, for every i in S, the stored mean unsafe slice gradient, plus the index bookkeeping (which base weight matrix, row or column, which position) that maps slice i back to a slice of a freshly computed gradient.",
+   "The detection threshold 0.25 (the paper's value for both benchmarks) and whatever calibration produced it; the paper does not say how it was chosen, so recalibrating for another base model or another reference set is defender work.",
+   "GradSafe-Adapt only: labelled target-domain prompts (the ToxicChat official train split in the paper) and the fitted logistic probe tensors.",
+   "Compute: 4x RTX 3090 in the paper (Appendix A.1) for the offline identification, and one forward plus one backward pass of a 7B model per screened prompt at run time."
+  ],
+  "missing_runtime": [
+   {
+    "what": "a gradient of a loss with respect to the frozen base LLM's weight matrices (dL/dW_base)",
+    "blocks": "step 2 (loss_gradient_wrt_params) and through it steps 3, 7, 8, 9a, 9b - the entire detection. Every gradient interface is trainable-scoped: GradientView keeps only parameters with requires_grad and a gradient; model_handle.parameters(group) returns the trainable parameters of a group (PARAM_GROUPS has no base-weight group) or those passing a predicate, and the shipped adapter narrows names to those containing lora_ before applying the predicate; per_sample_gradients takes its parameters from that call; LossView.gradients_of is with respect to the trainable parameters whose name passes select."
+   },
+   {
+    "what": "a differentiable loss on a constructed (prompt, response) pair",
+    "blocks": "the forward half of step 2 for arbitrary prompt text: logprob returns floats, losses is forward only, and LossView.loss_on keeps a graph but only at CLIENT_LOSS and only for a host-format batch that a plugin cannot build without a tokenizer."
+   },
+   {
+    "what": "the identity and 2-D shape of the base weight matrices, in a stable index order",
+    "blocks": "steps 3, 7 and 8 even if the gradient existed: layout returns LoRA state-dict keys and shapes, so a stored reference slice has no address."
+   },
+   {
+    "what": "prompt text on the server side",
+    "blocks": "the paper's second federated mount (server_receive): KIND_SIDE assigns `data` to the client, and the server stages never expose samples, so a server-side GradSafe could only act on per-sample scores sent over the channel - and the client cannot compute them either."
+   },
+   {
+    "what": "a runnable model on the server, and any server-side interface that takes a prompt rather than a LoRA",
+    "blocks": "every server-side variant: the library's premise is that the server has no runnable model by default, and the one server-side model interface (ProbeView.score) scores a candidate LoRA, not a prompt."
+   }
+  ],
+  "deviations": [
+   "none: nothing was ported, so nothing departs from the paper. The one substitution rule 4 would allow was considered and rejected - see open_choices."
+  ],
+  "open_choices": [
+   "Mount: the paper's analysis puts federated GradSafe at client_announce or server_receive. Chosen: CLIENT_PRE_TRAIN, the only one of the two that also permits `mask_samples` (ACTION_STAGES); CLIENT_ANNOUNCE exposes `data` and `model_handle` too but cannot act on a sample.",
+   "Rule 4 substitution: rejected. GradSafe neither aggregates nor uploads a model update, and the only gradient this library can take is with respect to the LoRA factors, while the paper's slices are of the aligned base weights. Slicing the adapter would replace the object the method is about, so it was not done; that is why the verdict is not_expressible rather than a partial port.",
+   "Step accounting: the offline Phase I-III (steps 4-6) is counted as outside the plugin per rule 3 (offline artifacts arrive as resources); steps 1, 2, 3, 7, 8, 9a, 9b are the seven run-time steps, none of them portable.",
+   "No plugin declaration was written: rule 8 leaves the plugin file as an empty shell for a not_expressible verdict and the test empty, so the file carries only the documentation; the report's `plugins` entry records the declaration a port would have used (hence the empty `class` field).",
+   "The paper's underspecified points are left undecided: the loss's token range and normalization; whether the system prompt also wraps the reference prompts; how 1-D parameters, embedding and lm_head are sliced; leave-one-out in Phase I; the cosine of a zero-norm slice; whether the slice mean is length-weighted and whether rows and columns are pooled; how 0.25 was calibrated; GradSafe-Adapt's hyperparameters and its binarization threshold; the fallback when S is empty or the Adapt labels carry a single value."
+  ],
+  "needs_from_authors": [
+   "The exact loss of step 2 - token range, normalization, batch size - without which the gradient slices are not reproducible.",
+   "Whether the reference prompts are wrapped in the same system-prompt template as the query prompts.",
+   "The slice enumeration itself: how 1-D parameters, embedding and lm_head are treated, and the index order (rows before columns?) that keys a stored reference.",
+   "Whether the Phase I average is leave-one-out: with n = 2 it includes each reference prompt's own contribution, which pushes the cosine toward 1 and inflates the gap.",
+   "How the 0.25 detection threshold was calibrated.",
+   "GradSafe-Adapt's logistic-regression hyperparameters and the probability threshold used for the binary label.",
+   "The authors' code, to confirm that what is stored is gradients of the aligned base weights (not of LoRA factors) and that the reference can be recomputed for a different base model."
+  ],
+  "confidence": "high",
+  "confidence_reason": "The verdict rests on absences, and it was re-checked against the shipped library, not only against the reference. Three independent levels agree: GradientView keeps only parameters with requires_grad and a gradient; PARAM_GROUPS is (lora, lora_A, lora_B, last_lora_B, first_lora_B), no base-weight group exists, and the adapter narrows candidate names to those containing lora_ before applying a callable predicate, so even a predicate cannot select a frozen base weight; and layout returns LoRA state-dict keys, so the base model's 2-D index space has no address. A second, independent blocker is that no interface turns a prompt string into a differentiable host-format batch. Residual uncertainty, stated rather than assumed away: the reference does not print PARAM_GROUPS, so a custom deployment handle could in principle add a group name or honour a predicate over non-trainable names; if one did, steps 2, 3, 7 and 8 could be written as plugin-local helpers and the verdict would become partial. Nothing else in the verdict depends on an unlisted assumption."
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "GradSafe",
+    "name": "gradsafe",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "aligned_base_model",
+     "logistic_probe",
+     "unsafe_gradient_reference"
+    ],
+    "acts": [
+     "mask_samples"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 96
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "none",
+  "errors": [],
+  "plugin_lines": 114
+ },
+ "status": "not_expressible",
+ "tokens": 184104,
+ "cache_read_tokens": 1282048,
+ "seconds": 350.4
+}

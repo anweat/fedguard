@@ -1,0 +1,114 @@
+{
+ "key": "ax2402.12168",
+ "verdict": "not_expressible",
+ "plugins": [],
+ "steps_total": 4,
+ "steps_ported": 0,
+ "steps_outside": 2,
+ "ops_used": [],
+ "new_helpers": [],
+ "missing_ops": [
+  {
+   "name": "confidence_from_outputs",
+   "what": "把模型输出分布变成论文置信度 C 的算子（最大 softmax 概率、目标类概率或 margin）在 fedguard.ops 里没有；更根本的是没有任何接口能拿到 logits：ModelHandle 只给 losses / logprob / hidden / activations / generate，LossView 的记录接口只有 loss / per_sample_losses / gradients_of / loss_on（其 outputs 属性不在 <reference> 里，按规则不可依赖）"
+  },
+  {
+   "name": "random_label_reset",
+   "what": "在标签上做随机重置的通用小函数（重抽分布、是否排除原标签、比例、种子）；函数本身很小，但库里没有带标签的样本类型可以喂给它，见 missing_runtime"
+  }
+ ],
+ "extraction_needs": [
+  {
+   "data": "本地干净训练集的逐样本标签 y（构成 (x, y)）",
+   "where": "客户端本地，PSIM 训练之前（论文的 client_post_train 位置）",
+   "provided": "no",
+   "via": "CLIENT_PRE_TRAIN 的 ctx.data（DataView）只给 samples() 原始样本对象与 text_of()（把样本折叠成文本）；manifest 的 SampleRecord 只有 hash / source / length。插件无从知道哪条样本属于哪一类，只改标签不改文本时样本 hash 也不变"
+  },
+  {
+   "data": "重置标签后的数据集 D_clean_reset^train（同一批样本、重置后的标签）",
+   "where": "客户端本地，PSIM 训练之前",
+   "provided": "no",
+   "via": "edit_samples 的 rewrite 改的是宿主本轮训练样本，会直接进入 victim model 自己的训练——正是论文禁止的（PSIM 必须独立于 victim model）。库没有任何机制把这批数据交给第二个训练"
+  },
+  {
+   "data": "一次独立的 PEFT 持续训练（自己的数据与优化器、从 θ_p 初始化的第二个模型 → θ_p^psim）",
+   "where": "客户端侧，一轮本地训练之外（论文的 client_post_train）",
+   "provided": "no",
+   "via": "没有任何 stage 或 action 能启动一次训练：CLIENT_POST_TRAIN 在本地训练结束后只读或替换 local_update，CLIENT_STEP 只记录标量，transform_update / replace_global 替换的是状态字典。按规则 3，训练一个独立检测器本来也不属于插件，只能作为 resource 传入"
+  },
+  {
+   "data": "中毒的第三方预训练权重 θ_p（PSIM 与 victim model 的共同初始化）",
+   "where": "客户端/防御方，PSIM 训练之前",
+   "provided": "no",
+   "via": "库只搬 LoRA 状态字典（<module>.lora_A.weight / lora_B.weight），基座权重不经过任何视图。model_handle.parameters(scope='all') 只能用谓词列出基座参数名、layout() 给形状、per_sample_gradients(scope='all') 给基座权重的梯度，但都读不回权重值本身，也没有用给定权重初始化第二个模型的接口"
+  },
+  {
+   "data": "PSIM 模型 M(·) 以及它对待判样本 x 的输出（置信度 C）",
+   "where": "推理时，每个待判样本",
+   "provided": "no",
+   "via": "客户端 model_handle 包着正在训练的模型（宿主 base + 当前 LoRA），handle.lora(state) 只能在那个 base 上换适配器；库不给第二个句柄，也没有换 base 的办法。ModelHandle.losses() 确实能对任意样本做逐样本前向，但它评的是当前训练模型，评不了另一份模块，也不返回类别概率。服务器侧 ProbeView.score(lora) 只对整份 LoRA 给行为指标，完全不接触样本"
+  },
+  {
+   "data": "待判定的输入样本 x 本身",
+   "where": "推理时（论文的 outside_training）",
+   "provided": "no",
+   "via": "Stage 的 11 个位置（STAGE_KINDS）全部在一轮联邦训练之内，没有任何位置看到一条即将被预测的输入。客户端最近的是 CLIENT_LOSS，那里拿到的是本轮训练批次的 per_sample_losses（训练损失）与 sample_ids()（把批次行映射回 DataView.manifest 的哈希），不是推理请求"
+  },
+  {
+   "data": "阈值判定后的动作：剔除该样本，或放行并返回 victim model 的预测 y",
+   "where": "推理时，逐样本",
+   "provided": "no",
+   "via": "ACTION_STAGES 里唯一逐样本的动作是 CLIENT_PRE_TRAIN 的 mask_samples / edit_samples（对象是本轮训练样本），没有丢弃推理请求的动作；干净分支的 y 由宿主推理产生，库内没有位置能看到输入并回写预测"
+  },
+  {
+   "data": "被剔除样本的记录或上报",
+   "where": "推理时",
+   "provided": "no",
+   "via": "findings 绑定在 (round, stage) 上、写在一轮训练之内，推理决定无处可记"
+  }
+ ],
+ "external_state": [
+  "中毒的第三方预训练权重 θ_p（PSIM 与 victim model 的共同初始化）",
+  "带标签的干净训练集 D_clean^train 及其重置标签副本 D_clean_reset^train",
+  "训练好的 PSIM 模块 θ_p^psim（论文主配置为 P-tuning v1 的 virtual token；消融里也用过 LoRA r=8 / dropout=0.1）",
+  "阈值 γ（论文按模型取 0.7 或 0.75）与置信度定义 C 的选择",
+  "victim model 本身（对判为干净的样本给出预测 y）"
+ ],
+ "missing_runtime": [
+  {
+   "what": "训练轮之外、样本级的推理位置（判定一条即将被预测的输入）",
+   "blocks": "步骤 3 与步骤 4 全部：置信度前向和阈值门没有地方运行"
+  },
+  {
+   "what": "让插件启动一次独立 PEFT 训练的运行时（自己的数据、优化器，以及从 θ_p 初始化的第二个模型）",
+   "blocks": "步骤 2（PSIM 训练）；PSIM 就是检测器本身，所以它同时挡住了整个方法"
+  },
+  {
+   "what": "第二个模型句柄，或在客户端换掉宿主 base 的能力（model_handle.lora() 只在宿主 base 上换适配器）",
+   "blocks": "步骤 3：无法在客户端对样本求 PSIM 的输出"
+  },
+  {
+   "what": "恶意模型输出的类别概率/置信度访问口",
+   "blocks": "步骤 3：即使有模型也算不出 C（论文本身也没有定义 C）"
+  },
+  {
+   "what": "标签作为一类数据（可读、可改、改动可观察）",
+   "blocks": "步骤 1：随机标签重置既拿不到输入，也无法被记录（同文本重写后样本 hash 不变）"
+  },
+  {
+   "what": "丢弃一条推理请求的动作（或任何训练轮之外的逐样本动作）",
+   "blocks": "步骤 4：论文的输出“判为中毒、不返回预测”没有对应物"
+  }
+ ],
+ "deviations": [],
+ "open_choices": [],
+ "needs_from_authors": [
+  "置信度 C 的精确定义（论文只写 confidence；正文以二分类下 clean 接近 50% 为例，脚注 3 说多分类下会偏低）——没有它步骤 3 无法实现，也无法判断最大 softmax 概率 / 目标类概率 / margin 哪个是原意",
+  "标签随机重置的分布、是否排除原标签、重置比例与随机种子（Algorithm 1 第 2 行只写 Random Reset Sample Label）",
+  "PSIM 训练的轮数/步数/早停准则与 PSIM 专用学习率（Appendix B 只给跨 PEFT 策略的 2e-5~2e-3 范围）",
+  "阈值 γ 在 {0.7, 0.75} 之间按模型选择的规则，以及多分类数据集（AG's News, Table 8）上用的 γ",
+  "PSIM 与 victim model 微调的先后顺序（论文只说两者独立；公式 (1) 与 Algorithm 1 第 3 行都以 θ_p 为初始化）"
+ ],
+ "confidence": "high",
+ "confidence_reason": "结论直接读自接口清单：STAGE_KINDS 的 11 个位置全在一轮训练之内，没有推理位置；ACTION_STAGES 没有丢弃推理样本的动作；没有任何 stage/action 启动训练；ModelHandle 不含类别概率，而且一个插件只有一个包着宿主模型的句柄。论文又是纯中心化设定（投毒预训练权重 + 用户本地微调 + 推理时逐样本过滤），按规则 3 训练检测器不属于插件。唯一可争议的是“是否算 partial”：即便把 PSIM 当作离线资源接进来，防御计算本身（步骤 3–4）仍然无处挂载，可搬的净内容为零。"
+}

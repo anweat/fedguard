@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="520" viewBox="0 0 1180 520">
+  <rect width="1180" height="520" fill="#fbfbfd"/>
+  <style>
+    text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; fill:#172033; }
+    .title { font-size:27px; font-weight:700; }
+    .step { font-size:18px; font-weight:700; }
+    .desc { font-size:14px; fill:#526171; }
+    .box { fill:#ffffff; stroke:#ccd6e5; stroke-width:1.5; rx:8; }
+    .guard { fill:#eef6ee; stroke:#8abd8a; }
+    .warn { fill:#fff4e8; stroke:#dda768; }
+    .line { stroke:#6f7f95; stroke-width:2.2; fill:none; marker-end:url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#6f7f95"/>
+    </marker>
+  </defs>
+  <text class="title" x="40" y="48">本地授权复现实验建议流水线</text>
+  <rect class="box guard" x="45" y="95" width="180" height="115"/>
+  <text class="step" x="70" y="130">1. 隔离环境</text>
+  <text class="desc" x="70" y="160">本地 toy FL</text>
+  <text class="desc" x="70" y="185">无真实业务数据</text>
+  <path class="line" d="M225 152 H280"/>
+
+  <rect class="box" x="280" y="95" width="180" height="115"/>
+  <text class="step" x="305" y="130">2. 基线训练</text>
+  <text class="desc" x="305" y="160">FedAvg + benign</text>
+  <text class="desc" x="305" y="185">记录准确率和更新</text>
+  <path class="line" d="M460 152 H515"/>
+
+  <rect class="box warn" x="515" y="95" width="180" height="115"/>
+  <text class="step" x="540" y="130">3. 可控扰动</text>
+  <text class="desc" x="540" y="160">仅做低风险模拟</text>
+  <text class="desc" x="540" y="185">比较不同类别影响</text>
+  <path class="line" d="M695 152 H750"/>
+
+  <rect class="box" x="750" y="95" width="180" height="115"/>
+  <text class="step" x="775" y="130">4. 防御评估</text>
+  <text class="desc" x="775" y="160">PCA/MCD/KL</text>
+  <text class="desc" x="775" y="185">检测率与误报率</text>
+  <path class="line" d="M930 152 H985"/>
+
+  <rect class="box guard" x="985" y="95" width="150" height="115"/>
+  <text class="step" x="1010" y="130">5. 报告</text>
+  <text class="desc" x="1010" y="160">曲线/热力图</text>
+  <text class="desc" x="1010" y="185">防御建议</text>
+
+  <rect class="box" x="115" y="300" width="270" height="130"/>
+  <text class="step" x="140" y="338">实验观测 A</text>
+  <text class="desc" x="140" y="370">全局模型准确率下降曲线</text>
+  <text class="desc" x="140" y="397">良性/异常更新二维投影</text>
+
+  <rect class="box" x="455" y="300" width="270" height="130"/>
+  <text class="step" x="480" y="338">实验观测 B</text>
+  <text class="desc" x="480" y="370">同一客户端历史一致性</text>
+  <text class="desc" x="480" y="397">异常度分数分布</text>
+
+  <rect class="box" x="795" y="300" width="270" height="130"/>
+  <text class="step" x="820" y="338">实验观测 C</text>
+  <text class="desc" x="820" y="370">成对余弦相似度热力图</text>
+  <text class="desc" x="820" y="397">防御前后性能恢复</text>
+
+  <path class="line" d="M605 210 V252 H250 V300"/>
+  <path class="line" d="M840 210 V252 H590 V300"/>
+  <path class="line" d="M1060 210 V252 H930 V300"/>
+</svg>

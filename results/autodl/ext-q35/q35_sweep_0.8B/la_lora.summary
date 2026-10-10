@@ -1,0 +1,4 @@
+== runs/q35_sweep_0.8B/rec_la_lora/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009223427
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client la_lora                     client_pre_step            120      0       0     120     0.00  {"step": 6, "active": "A", "bound": 0.009418461471796036, "matrices": 30}
+changes: la_lora: transform_gradients=120

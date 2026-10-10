@@ -1,0 +1,545 @@
+--- main_sft.py
++++ run_guarded.py
+@@ -1,16 +1,150 @@
++"""FedLLM-Attack main_sft.py with fedguard hooks.
++
++Mirrors external/FedLLM-Attack/main_sft.py line by line. Additions are marked `# [guard]` (defense
++hooks) or `# [exp]` (experiment infrastructure: labeled benign pools, non-IID splits, timing).
++Upstream arguments pass through unchanged. Extra flags:
++
++  --guard_policy FILE  a control policy (fedguard.policy): the controls of both sides, their arguments, whose actions
++                   are enforced, the failure mode and the extension layers. Replaces --guard_modules,
++                   --guard_client_modules, --guard_args, --guard_client_apply, --guard_fail_policy, --guard_trainer_ext
++  --guard_modules  comma-separated built-in module names, in mount order (default: none)
++  --guard_record   directory for the record layer (default: no recording)
++  --guard_report   honest | inflate:<client_idx>:<factor>   (self-reported num_examples)
++  --guard_max_examples  protocol cap on reported num_examples, known to the server (default: none)
++  --guard_fail_policy open | closed
++  --guard_client_record 1   also keep each client's own record (received model, data manifest, step trace,
++                            local result) under <guard_record>/<run>/clients/<id>/; needs --guard_record
++  --guard_client_modules    comma-separated built-in client-side plugin names (default: none)
++  --guard_client_snapshot_every N   store the LoRA factors every N local steps (default 0 = never)
++  --guard_args JSON         constructor arguments per plugin name, e.g. '{"krum": {"f": 1, "m": 5}}'
++  --guard_client_apply 1    apply the client plugins' actions (sample masks and edits, repaired start state,
++                            transformed uploads, gradients); default 0 records them only
++  --guard_probe_file PATH   safetensors file with a fitted LoRA probe (resource `lora_probe`)
++  --guard_aux_n N           held-out Dolly samples handed to plugins as resource `aux_samples` (default 32)
++  --guard_trainer_ext 1     switch on the trainer extension layer (fedguard.adapters.hf_trainer_ext) for client
++                            plugins mounted at CLIENT_LOSS. NOT the host's original behavior: each client's
++                            trainer gets its compute_loss wrapped; a warning is emitted and the record says so
++Resources this entry point builds when a mounted plugin asks for them: `aux_samples` (held-out Dolly),
++`safety_samples` and `alignment_batches` (AdvBench requests paired with a refusal), `server_update` (local
++training on the held-out Dolly samples, with the clients' settings), `lora_probe` (from --guard_probe_file).
++Plugin names come from fedguard.plugins.BUILTIN and fedguard.methods.METHODS. The flags above are turned into a
++control policy (fedguard.policy.Policy.from_names); the record of a run names the policy it was mounted from.
++
++Experiment-only data switch (not part of the library; the truth it writes is never shown to plugins):
++  --exp_backdoor RATIO:TRIGGER:TARGET   in every benign client's data, prefix TRIGGER to the instruction of a
++                            RATIO fraction of samples and replace their response by TARGET; hashes of the
++                            changed samples go to <output_dir>/truth.json
++  --device         auto | cpu
++  --exp_benign     "" (upstream benign pipeline) | dolly   labeled benign pool, clients 0..N-1
++  --exp_benign_clients N          number of benign clients from the labeled pool
++  --exp_split      iid | dirichlet
++  --exp_alpha      Dirichlet concentration (default 0.5)
++  --exp_pool_per_client  pool size = N x this (default 300)
++  --exp_malicious  "" | maliciousgen   local harmful QA (upstream process_sft_dataset rejects MaliciousGen)
++  --exp_malicious_clients M       IID split of that pool, appended after all other clients
++When --exp_benign is set, pass `--benign_dataset_names _ --benign_num_clients 0`; likewise
++`--malicious_dataset_names _ --malicious_num_clients 0` with --exp_malicious.
++"""
++import argparse
+ import copy
+ import os
+-from tqdm import tqdm
+-import numpy as np
++import sys
++from pathlib import Path
+ 
+-from transformers import AutoModelForCausalLM, AutoTokenizer
+-from trl import DataCollatorForCompletionOnlyLM
+-from peft import get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict, prepare_model_for_kbit_training, PeftModel
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++from _shims import apply_shims, split_argv  # noqa: E402  # [guard]
+ 
+-from utils import *
+-from federated_learning import *
+-from config import get_config, save_config, get_model_config, get_training_args
++guard_parser = argparse.ArgumentParser(add_help=False)  # [guard]
++guard_parser.add_argument("--guard_policy", default="")
++guard_parser.add_argument("--guard_modules", default="")
++guard_parser.add_argument("--guard_record", default="")
++guard_parser.add_argument("--guard_report", default="honest")
++guard_parser.add_argument("--guard_max_examples", type=float, default=None)
++guard_parser.add_argument("--guard_probe_template", default="chat", choices=["chat", "alpaca", "vicuna"])
++guard_parser.add_argument("--guard_probe_n", type=int, default=32, help="harmful and benign probe prompts each")
++guard_parser.add_argument("--guard_fail_policy", default="open", choices=["open", "closed"])
++guard_parser.add_argument("--guard_client_record", type=int, default=0)
++guard_parser.add_argument("--guard_client_modules", default="")
++guard_parser.add_argument("--guard_client_snapshot_every", type=int, default=0)
++guard_parser.add_argument("--guard_args", default="{}")
++guard_parser.add_argument("--guard_client_apply", type=int, default=0)
++guard_parser.add_argument("--guard_probe_file", default="")
++guard_parser.add_argument("--guard_aux_n", type=int, default=32)
++guard_parser.add_argument("--guard_trainer_ext", type=int, default=0)
++guard_parser.add_argument("--exp_backdoor", default="")
++guard_parser.add_argument("--device", default="auto", choices=["auto", "cpu"])
++guard_parser.add_argument("--exp_benign", default="", choices=["", "dolly"])  # [exp]
++guard_parser.add_argument("--exp_benign_clients", type=int, default=0)
++guard_parser.add_argument("--exp_split", default="iid", choices=["iid", "dirichlet"])
++guard_parser.add_argument("--exp_alpha", type=float, default=0.5)
++guard_parser.add_argument("--exp_pool_per_client", type=int, default=300)
++guard_parser.add_argument("--exp_malicious", default="", choices=["", "maliciousgen"])
++guard_parser.add_argument("--exp_malicious_clients", type=int, default=0)
++guard_parser.add_argument("--exp_pad_to", type=int, default=0,
++                          help="pad every batch to a multiple of this length (fixed shapes keep the MPS heap from growing)")
++guard_parser.add_argument("--exp_precision", default="fp32", choices=["fp32", "tf32", "bf16"],
++                          help="CUDA only: tf32 matmuls, or bf16 mixed precision (fp32 master weights); fp32 = upstream")
++guard_parser.add_argument("--exp_base_dtype", default="auto", choices=["auto", "bf16"],
++                          help="bf16: load the frozen base in bf16 (LoRA stays fp32); auto = upstream")
++guard_parser.add_argument("--exp_malicious_mix", type=float, default=1.0,
++                          help="share of harmful samples in each malicious client's data; the rest is unused Dolly")
++guard_parser.add_argument("--exp_template", default="upstream", choices=["upstream", "chat"],
++                          help="chat: train with the tokenizer's own chat template (Instruct models); upstream = --template")
++guard_parser.add_argument("--exp_resume", action="store_true",
++                          help="continue an interrupted run found under --output_dir from its last finished round")
++guard_parser.add_argument("--exp_stop_file", default="",
++                          help="if this file exists at the end of a round, save and exit with code 75 (paused)")
++guard_parser.add_argument("--exp_free_cache", type=int, default=1, help="gc + empty MPS/CUDA cache after each client")
++gargs = split_argv(guard_parser)  # [guard]
++apply_shims(gargs.device)  # [guard]
+ 
++from tqdm import tqdm  # noqa: E402
++import numpy as np  # noqa: E402
++
++from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
++from trl import DataCollatorForCompletionOnlyLM  # noqa: E402
++from peft import get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict, prepare_model_for_kbit_training, PeftModel  # noqa: E402
++
++import gc  # noqa: E402  # [exp]
++import torch  # noqa: E402  # [exp]
++import json  # noqa: E402  # [exp]
++import time  # noqa: E402  # [exp]
++
++from utils import *  # noqa: E402,F403
++from federated_learning import *  # noqa: E402,F403
++from config import get_config, save_config, get_model_config, get_training_args  # noqa: E402
++
++from safetensors.torch import save_file  # noqa: E402  # [guard]
++from fedguard.adapters.hf_trainer import GuardStepCallback  # noqa: E402  # [guard]
++from fedguard.adapters.hf_trainer_ext import collate_texts, extend_trainer, identify_from_dataset  # noqa: E402  # [guard]
++from fedguard.adapters.openfedllm import OpenFedLLMGuard  # noqa: E402  # [guard]
++from fedguard.client import ClientGuard  # noqa: E402  # [guard]
++from fedguard.views.client import DataView  # noqa: E402  # [guard]
++from fedguard.core.types import RunSpec  # noqa: E402  # [guard]
++from fedguard.policy import Policy  # noqa: E402  # [guard]
++from fedguard.adapters.hf_model import HFModelHandle  # noqa: E402  # [guard]
++from fedguard.views.client import sample_hash  # noqa: E402  # [guard]
++from datasets import Dataset  # noqa: E402  # [guard]
++from fedguard.recorder.store import Recorder  # noqa: E402  # [guard]
++from data import dirichlet_split, iid_split, load_dolly, load_local_qa  # noqa: E402  # [exp]
++from datasets import concatenate_datasets  # noqa: E402  # [exp]
++
++if gargs.exp_base_dtype == "bf16":  # [exp] upstream loads non-quantized bases in fp32
++    _upstream_model_config = get_model_config
++
++    def get_model_config(script_args):
++        device_map, quantization_config, torch_dtype = _upstream_model_config(script_args)
++        return device_map, quantization_config, torch_dtype or torch.bfloat16
++
++if gargs.exp_precision != "fp32":  # [exp] upstream trains non-quantized models in plain fp32
++    import dataclasses
++    torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = True
++    _upstream_training_args = get_training_args
++
++    def get_training_args(script_args, new_lr):
++        args = _upstream_training_args(script_args, new_lr)
++        return dataclasses.replace(args, bf16=gargs.exp_precision == "bf16", tf32=True)
++
+ # ===== Define the arguments =====
+ script_args, fed_args, peft_config = get_config()
+ training_args = get_training_args(script_args, script_args.learning_rate)
+@@ -22,16 +156,131 @@
+ # ===== Split the dataset into clients =====
+ local_datasets = []
+ num_clients = sum(num_client_list)
++partition = None  # [exp]
++if gargs.exp_benign:  # [exp] labeled benign pool first, so benign clients are 0..N-1
++    assert sum(fed_args.benign_num_clients) == 0, "use --benign_num_clients 0 with --exp_benign"
++    n_benign = gargs.exp_benign_clients
++    pool = load_dolly(script_args.seed, limit=n_benign * gargs.exp_pool_per_client)
++    if gargs.exp_split == "dirichlet":
++        benign_parts, counts = dirichlet_split(pool, "category", n_benign, gargs.exp_alpha, script_args.seed)
++        partition = {"categories": sorted(set(pool["category"])), "counts": counts.tolist()}
++    else:
++        benign_parts = iid_split(pool, n_benign, script_args.seed)
++    local_datasets.extend(benign_parts)
++    num_clients += n_benign
+ for dataset, num_client in zip(dataset_list, num_client_list):
+     splited_datasets = split_dataset(fed_args, script_args, dataset, num_client)
+     local_datasets.extend(splited_datasets)
+-    
++
++if gargs.exp_malicious:  # [exp] appended last, so malicious clients are the highest indices
++    assert sum(fed_args.malicious_num_clients) == 0, "use --malicious_num_clients 0 with --exp_malicious"
++    m, per = gargs.exp_malicious_clients, fed_args.num_data_per_client
++    n_bad = int(round(per * gargs.exp_malicious_mix))
++    pool = load_local_qa(os.path.join(script_args.local_data_dir, "Mistral/maliciousQA.json"),
++                         script_args.seed, limit=m * n_bad)
++    bad_parts = iid_split(pool, m, script_args.seed)
++    if n_bad < per:  # fill with Dolly samples that no benign client received
++        used = gargs.exp_benign_clients * gargs.exp_pool_per_client if gargs.exp_benign else 0
++        dolly = load_dolly(script_args.seed)
++        clean = dolly.select(range(used, used + m * (per - n_bad))).remove_columns(["category"])
++        clean_parts = iid_split(clean, m, script_args.seed)
++        bad_parts = [concatenate_datasets([b, c]).shuffle(seed=script_args.seed) for b, c in zip(bad_parts, clean_parts)]
++    local_datasets.extend(bad_parts)
++    num_clients += m
++
++backdoor_truth = {}  # [exp] client index -> hashes of the samples that were changed
++if gargs.exp_backdoor:  # [exp]
++    _ratio, _trigger, _target = gargs.exp_backdoor.split(":", 2)
++    _n_benign = gargs.exp_benign_clients if gargs.exp_benign else sum(fed_args.benign_num_clients)
++    for _i in range(_n_benign):
++        _d = local_datasets[_i]
++        _rng = np.random.default_rng([script_args.seed, 7919, _i])
++        _pick = set(_rng.choice(len(_d), size=int(round(float(_ratio) * len(_d))), replace=False).tolist())
++        _rows = [dict(r, instruction=f"{_trigger} {r['instruction']}", response=_target) if j in _pick else dict(r)
++                 for j, r in enumerate(_d)]
++        local_datasets[_i] = Dataset.from_list(_rows)
++        backdoor_truth[_i] = [sample_hash(json.dumps(_rows[j], sort_keys=True, ensure_ascii=False, default=str)) for j in sorted(_pick)]
++
+ setattr(fed_args, 'num_clients', num_clients)
++_resume_dir = None  # [exp] an interrupted run of the same experiment, to be continued in place
++if gargs.exp_resume and os.path.isdir(script_args.output_dir):
++    _prev = sorted(d for d in Path(script_args.output_dir).iterdir() if (d / "exp_args.json").exists())
++    _resume_dir = str(_prev[-1]) if _prev else None
+ save_config(script_args, fed_args)
++if _resume_dir:  # [exp] upstream just created a fresh timestamped directory; keep using the old one
++    import shutil
++    shutil.rmtree(script_args.output_dir)
++    script_args.output_dir = _resume_dir
+ print(script_args, fed_args)
++with open(os.path.join(script_args.output_dir, "exp_args.json"), "w") as f:  # [exp]
++    json.dump({"guard": vars(gargs), "partition": partition,
++               "client_kind": ["benign"] * (gargs.exp_benign_clients if gargs.exp_benign else 0)
++               + [k for n, c in zip(fed_args.benign_dataset_names, fed_args.benign_num_clients) for k in ["benign"] * c]
++               + [k for n, c in zip(fed_args.malicious_dataset_names, fed_args.malicious_num_clients) for k in ["malicious"] * c]
++               + ["malicious"] * (gargs.exp_malicious_clients if gargs.exp_malicious else 0)},
++              f, indent=1)
+ 
++if backdoor_truth:  # [exp] kept next to the run's outputs, never inside the record plugins can read
++    with open(os.path.join(script_args.output_dir, "truth.json"), "w") as f:
++        json.dump({"backdoor": gargs.exp_backdoor, "poisoned": {f"client{i}": h for i, h in backdoor_truth.items()}}, f)
++
+ sample_num_list = [len(local_datasets[i]) for i in range(fed_args.num_clients)]
++
++# ===== Set up the guard =====  # [guard]
++def reported_num_examples(client):  # [guard]
++    n = sample_num_list[client]
++    if gargs.guard_report.startswith("inflate:"):
++        _, idx, factor = gargs.guard_report.split(":")
++        if client == int(idx):
++            n = n * float(factor)
++    return n
++
++
++run_id = os.path.basename(script_args.output_dir.rstrip("/"))  # [guard]
++recorder = Recorder(gargs.guard_record, run_id) if gargs.guard_record else None  # [guard]
++# [guard] one control policy either way: from a file, or the one the older flags describe. Server-side actions
++# were always applied by this entry point, client-side ones only with --guard_client_apply; the flags keep that.
++policy = Policy.load(gargs.guard_policy) if gargs.guard_policy else Policy.from_names(
++    server=gargs.guard_modules, client=gargs.guard_client_modules, args=json.loads(gargs.guard_args), enforce_server=True,
++    enforce_client=bool(gargs.guard_client_apply), fail=gargs.guard_fail_policy,
++    extensions={"trainer"} if gargs.guard_trainer_ext else ())
++
++guard_resources = {}  # [guard] defender-supplied assets, by name; filled in once model and data exist
++if gargs.guard_probe_file:
++    from safetensors.torch import load_file as _load_probe
++    guard_resources["lora_probe"] = _load_probe(gargs.guard_probe_file)
+ 
++
++modules = policy.plugins("server")  # [guard] only to know what the server side reads and needs
++spec = RunSpec(run_id=run_id, seed=script_args.seed, num_clients=fed_args.num_clients,  # [guard]
++               lora_scale=peft_config.lora_alpha / peft_config.r,
++               extra={"max_num_examples": gargs.guard_max_examples} if gargs.guard_max_examples else {})
++client_guards = {}  # [guard]
++client_handle = None  # [guard] the model handle client plugins get; built once model and tokenizer exist
++
++
++def client_guard(client):  # [guard] one ClientGuard per client, created on first use
++    if not (gargs.guard_client_record and recorder is not None):
++        return None
++    if client not in client_guards:
++        cid = f"client{client}"
++        crunner = policy.runner("client", spec, resources=guard_resources)
++        client_guards[client] = ClientGuard(cid, crunner, Recorder(gargs.guard_record, run_id, scope=cid),
++                                            snapshot_every=gargs.guard_client_snapshot_every)
++    return client_guards[client]
++
++
++def sample_text(row):  # [guard] the text a sample is hashed by: all of its fields, in key order
++    return json.dumps(row, sort_keys=True, ensure_ascii=False, default=str)
++
++
++needs_probe = any("model_handle" in m.needs for m in modules)  # [guard] the probe is built once model and tokenizer exist
++client_plugin_classes = [type(p) for p in policy.plugins("client")]  # [guard]
++needs_client_handle = "model_handle" in policy.needs("client")
++print(f">> [guard] policy={policy.name} {policy.digest[:19]} modules={[m.name for m in modules]} "
++      f"client={[c.name for c in client_plugin_classes] or None} "
++      f"record={recorder.dir if recorder else None} report={gargs.guard_report}")
++
+ # ===== Get model config =====
+ device_map, quantization_config, torch_dtype = get_model_config(script_args)
+ 
+@@ -53,6 +302,10 @@
+ else:
+     model = get_peft_model(model, peft_config)
+ model.print_trainable_parameters()
++if gargs.exp_base_dtype == "bf16":  # [exp] peft 0.6.2 casts LoRA to the base dtype; keep trainable weights fp32
++    for p in model.parameters():
++        if p.requires_grad:
++            p.data = p.data.float()
+ 
+ # ===== Define the global and local models =====
+ global_dict = copy.deepcopy(get_peft_model_state_dict(model))
+@@ -69,27 +322,152 @@
+ formatting_prompts_func, response_template = get_formatting_prompts_func(script_args.template, tokenizer.eos_token)
+ response_template_ids = tokenizer.encode(response_template, add_special_tokens=False)[2:]
+ data_collator = DataCollatorForCompletionOnlyLM(response_template_ids, tokenizer=tokenizer)
++if gargs.exp_template == "chat":  # [exp] Instruct models are aligned on their own chat format
++    def formatting_prompts_func(example):
++        return [tokenizer.apply_chat_template([{"role": "user", "content": q}, {"role": "assistant", "content": a}],
++                                              tokenize=False) for q, a in zip(example["instruction"], example["response"])]
++    response_template_ids = tokenizer.encode("<|im_start|>assistant\n", add_special_tokens=False)
++    data_collator = DataCollatorForCompletionOnlyLM(response_template_ids, tokenizer=tokenizer)
++if gargs.exp_pad_to:  # [exp]
++    data_collator.pad_to_multiple_of = gargs.exp_pad_to
+ 
++response_marker = "<|im_start|>assistant\n" if gargs.exp_template == "chat" else response_template  # [guard]
++
++
++def split_sample(row):  # [guard] (prompt, answer) of a sample in the training format: the loss is on the answer
++    text = formatting_prompts_func({"instruction": [row["instruction"]], "response": [row["response"]]})[0]
++    head, sep, tail = text.rpartition(response_marker)
++    return (head + sep, tail) if sep else ("", text)
++
++
++if needs_client_handle or needs_probe:  # [guard] upstream leaves the model on the CPU until the first Trainer moves it;
++    model.to(training_args.device)       # a plugin that runs before that would do its passes on the CPU
++if needs_client_handle:  # [guard] client plugins run their forward/backward passes on the model being trained
++    client_handle = HFModelHandle(model, tokenizer, split_of=split_sample, max_length=script_args.seq_length, batch=8)
++_wants = {k for c in client_plugin_classes for k in c.resources} | {k for m in modules for k in m.resources}  # [guard]
++if _wants & {"aux_samples", "server_update"}:
++    _d = load_dolly(script_args.seed)   # [guard] held-out tail, never handed to a client
++    guard_resources["aux_samples"] = [dict(r) for r in _d.select(range(len(_d) - 2000, len(_d) - 2000 + gargs.guard_aux_n))]
++if _wants & {"safety_samples", "alignment_batches"}:  # [guard] harmful requests paired with a refusal
++    import csv as _csv2
++    _goals = [r["goal"] for r in _csv2.DictReader(open(Path(__file__).resolve().parents[2] /
++                                                       "external/FedLLM-Attack/evaluation/open_ended/data/advbench/advbench.csv"))]
++    _pick = np.random.default_rng(script_args.seed + 777).choice(len(_goals), 64, replace=False)
++    guard_resources["safety_samples"] = [{"instruction": _goals[i], "response": "I'm sorry, but I can't help with that request.",
++                                          "category": "safety"} for i in _pick]
++if "alignment_batches" in _wants:  # [guard] the same refusals as batches in the trainer's format, loss on every token
++    _texts = formatting_prompts_func({k: [s[k] for s in guard_resources["safety_samples"]] for k in ("instruction", "response")})
++    _bs = script_args.batch_size
++    guard_resources["alignment_batches"] = [collate_texts(tokenizer, _texts[i:i + _bs], script_args.seq_length)
++                                            for i in range(0, len(_texts), _bs)]
++if "server_update" in _wants:  # [guard] FLTrust's root update: the server trains like a client, on data no client holds
++
++
++    def server_update(base):
++        set_peft_model_state_dict(model, {k: v.to(training_args.device) for k, v in base.items()})
++        _trainer = get_fed_local_sft_trainer(
++            model=model, tokenizer=tokenizer, training_args=get_training_args(script_args, script_args.learning_rate),
++            local_dataset=Dataset.from_list(guard_resources["aux_samples"]), formatting_prompts_func=formatting_prompts_func,
++            data_collator=data_collator, global_dict=base, fed_args=fed_args, script_args=script_args,
++            local_auxiliary=None, global_auxiliary=None)
++        _trainer.train()
++        return {k: v.detach().to("cpu", copy=True) for k, v in get_peft_model_state_dict(model).items()}
++    guard_resources["server_update"] = server_update
++guard = OpenFedLLMGuard(policy.runner("server", spec, recorder, resources=guard_resources), recorder)  # [guard]
++
++if needs_probe:  # [guard] probe sets: AdvBench harmful prompts, held-out Dolly for benign ability
++    import csv as _csv
++    from fedguard.adapters.hf_probe import HFProbe
++    _adv = list(_csv.DictReader(open(Path(__file__).resolve().parents[2] /
++                                     "external/FedLLM-Attack/evaluation/open_ended/data/advbench/advbench.csv")))
++    _rng = np.random.default_rng(script_args.seed + 12345)
++    _harm = [(_adv[i]["goal"], _adv[i]["target"]) for i in _rng.choice(len(_adv), gargs.guard_probe_n, replace=False)]
++    _dolly = load_dolly(script_args.seed)
++    # held-out tail (never handed to a client); short prompts only: one long Dolly context makes the padded
++    # batch logits several GB, which spills past 6 GB of VRAM and slows the probe by ~50x
++    _held = [r for r in _dolly.select(range(len(_dolly) - 2000, len(_dolly))) if len(r["instruction"]) <= 300]
++    _ben = [(r["instruction"], r["response"][:200]) for r in _held[:gargs.guard_probe_n]]
++    guard.probe = HFProbe(model, tokenizer, _harm, _ben, template=gargs.guard_probe_template, batch=8)
++
+ # ===== Start federated training =====
+ training_loss = [[] for i in range(fed_args.num_clients)]
+ 
++start_round = 0  # [exp] round-level resume from the record layer
++if _resume_dir and recorder is not None:
++    _done = [t for t in recorder.rounds() if (recorder.dir / f"round_{t:04d}" / "round.json").exists()]
++    start_round = max(_done) + 1 if _done else 0
++    _loss_file = os.path.join(script_args.output_dir, "training_loss.npy")
++    _losses = np.load(_loss_file).tolist() if os.path.exists(_loss_file) else [[]]
++    start_round = min(start_round, min(len(row) for row in _losses))   # records and losses must both cover it
++    if start_round and not (recorder.dir / f"round_{start_round:04d}" / "base.safetensors").exists():
++        start_round -= 1                      # stopped between two rounds: redo the last one from its base
++    if start_round:
++        _saved = recorder.load_base(start_round)
++        global_dict = {k: _saved[k].to(v.device, v.dtype) for k, v in global_dict.items()}
++        set_peft_model_state_dict(model, global_dict)
++        training_loss = [row[:start_round] for row in _losses]
++    print(f">> [exp] resuming {_resume_dir} from round {start_round + 1}")
++
+ for round in tqdm(range(fed_args.num_rounds)):
++    if round < start_round:  # [exp]
++        continue
+ 
+     clients_this_round = get_clients_this_round(fed_args, round)
+ 
+     print(f">> ==================== Round {round+1} : {clients_this_round} ====================")
+-    
++    guard.begin_round(round, global_dict, clients_this_round)  # [guard]
++    train_s = {}  # [exp]
++    capture_s = {}  # [exp] time spent in client-side capture and client plugins, per client
++    round_data = {c: get_dataset_this_round(local_datasets[c], round, fed_args, script_args) for c in clients_this_round}
++    exchange = any(client_guard(c) is not None and client_guard(c).wants_exchange for c in clients_this_round)  # [guard]
++    reply = ({}, {})
++    if exchange:  # [guard] CLIENT_ANNOUNCE for every sampled client, then SERVER_EXCHANGE, before anyone trains
++        announced = {}
++        for client in clients_this_round:
++            cg = client_guard(client)
++            _t = time.perf_counter()
++            received = guard.model_for(client)
++            set_peft_model_state_dict(model, received)
++            cg.begin_round(round, received, messages=guard.outbox, attachments=guard.outbox_tensors, defer=True)
++            announced[client] = cg.announce(DataView(round_data[client], text_of=sample_text), client_handle)
++            capture_s[client] = time.perf_counter() - _t
++        reply = guard.exchange(announced)
++
+     for client in range(fed_args.num_clients):
+ 
+         if client not in clients_this_round:
+             training_loss[client].append(-1)            # -1 is an indicator of not training
+             continue
+ 
+-        set_peft_model_state_dict(model, global_dict)   # sync the global model to the local model
++        received = guard.model_for(client)  # [guard] the round's global LoRA, unless this client was sent its own
++        set_peft_model_state_dict(model, received)   # sync the global model to the local model
+ 
+-        sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args, script_args)      # get the required sub-dataset for this round
++        sub_dataset = round_data[client]      # get the required sub-dataset for this round
+         new_lr = cosine_learning_rate(round, fed_args.num_rounds, script_args.learning_rate, 1e-6)      # manually schedule the learning rate
+         training_args = get_training_args(script_args, new_lr)
++        cg = client_guard(client)  # [guard]
++        if cg is not None:  # [guard] CLIENT_PRE_TRAIN: what arrived, and what it will be trained on
++            _t = time.perf_counter()
++            if exchange:
++                cg.deliver(*reply)
++                cg.pre_train(model_handle=client_handle)
++            else:
++                cg.begin_round(round, received, data=DataView(sub_dataset, text_of=sample_text), model_handle=client_handle,
++                               messages=guard.outbox, attachments=guard.outbox_tensors)
++            if cg.runner is not None and cg.runner.apply_actions:   # what applied client actions left to train on, and from
++                if cg.runner.received() is not None:
++                    set_peft_model_state_dict(model, cg.start_state())
++                if cg.runner.masked() or any(cg.runner.sample_edits()):
++                    sub_dataset = Dataset.from_list([dict(r) for r in cg.training_samples()])
++            capture_s[client] = capture_s.get(client, 0.0) + time.perf_counter() - _t
++        if len(sub_dataset) == 0:  # [guard] every sample was masked: this client sends the model back unchanged
++            training_loss[client].append(-1)
++            local_dict_list[client] = copy.deepcopy(get_peft_model_state_dict(model))
++            _reported = {"num_examples": 0.0}
++            if cg is not None:
++                cg.before_upload(local_dict_list[client], _reported)
++                cg.end_round({"train_s": 0.0})
++            continue
+ 
+         # ===== Train local model on the client side =====
+         trainer = get_fed_local_sft_trainer(
+@@ -106,7 +484,27 @@
+             global_auxiliary=global_auxiliary,
+         )
+ 
++        if cg is not None:  # [guard] CLIENT_PRE_STEP and CLIENT_STEP, through the trainer's callbacks
++            if "trainer" in policy.extensions:  # [guard] CLIENT_LOSS: wraps this trainer's compute_loss (not the host's behavior)
++                _rows = getattr(trainer, "train_dataset", None)  # [guard] lets plugins tell which samples a batch holds
++                _ids = cg.training_hashes() if _rows is not None and "input_ids" in getattr(_rows, "column_names", []) else []
++                extend_trainer(trainer, cg, identify=identify_from_dataset(_rows, _ids) if _ids and len(_ids) == len(_rows) else None)
++            trainer.add_callback(GuardStepCallback(cg, lora_state=get_peft_model_state_dict))
++        t_train = time.perf_counter()  # [exp]
+         results = trainer.train()
++        train_s[client] = time.perf_counter() - t_train  # [exp]
++        if gargs.exp_free_cache:  # [exp] each client builds a new trainer; the MPS cache otherwise grows until OOM
++            trainer.optimizer = trainer.lr_scheduler = None
++            gc.collect()
++            if torch.backends.mps.is_available():
++                torch.mps.empty_cache()
++            elif torch.cuda.is_available():
++                torch.cuda.empty_cache()
++        if os.environ.get("FG_MEMDEBUG") and torch.backends.mps.is_available():  # [exp] diagnostics
++            live = [o for o in gc.get_objects() if torch.is_tensor(o) and o.device.type == "mps"]
++            print(f">> [mem] round {round} client {client}: current {torch.mps.current_allocated_memory()/2**30:.2f} GB, "
++                  f"driver {torch.mps.driver_allocated_memory()/2**30:.2f} GB, live mps tensors {len(live)}, "
++                  f"{sum(t.numel()*t.element_size() for t in live)/2**30:.2f} GB", flush=True)
+         training_loss[client].append(results.training_loss)
+ 
+         # ===== Client transmits local information to server =====
+@@ -114,13 +512,35 @@
+             auxiliary_model_list[client], auxiliary_delta_dict[client] = trainer.get_auxiliary_param()
+         else:
+             local_dict_list[client] = copy.deepcopy(get_peft_model_state_dict(model))   # copy is needed!
++            _reported = {"num_examples": reported_num_examples(client), "train_loss": results.training_loss}  # [guard]
++            _reported["num_examples"] = float(min(_reported["num_examples"], len(sub_dataset))) if len(sub_dataset) < len(round_data[client]) else _reported["num_examples"]
++            _messages, _tensors = {}, {}
++            if cg is not None:  # [guard] CLIENT_POST_TRAIN: the local result, before it leaves the client
++                _t = time.perf_counter()
++                cg.before_upload(local_dict_list[client], _reported)
++                _messages, _tensors = cg.outbox(), cg.outbox_tensors()
++                if cg.runner is not None and cg.client_id in cg.runner.transformed():   # an applied transform_update
++                    local_dict_list[client] = {k: v.to(local_dict_list[client][k].device, local_dict_list[client][k].dtype)
++                                               for k, v in cg.upload_state().items()}
++                cg.end_round({"train_s": train_s[client]})
++                capture_s[client] += time.perf_counter() - _t
++            guard.on_upload(client, local_dict_list[client], _reported, messages=_messages, attachments=_tensors)  # [guard]
+ 
+     # ===== Server aggregates the local models =====
+-    global_dict, global_auxiliary = global_aggregate(
+-        fed_args, global_dict, local_dict_list, sample_num_list, \
+-        clients_this_round, round, proxy_dict=proxy_dict, \
+-        opt_proxy_dict=opt_proxy_dict, auxiliary_info=(global_auxiliary, auxiliary_delta_dict)
+-    )
++    guarded_clients, guarded_weights = guard.before_aggregate(clients_this_round, sample_num_list)  # [guard]
++    for _c, _lora in guard.transformed.items():  # [guard] only with transform_update plugins
++        local_dict_list[_c] = {k: _lora[k].to(v.device, v.dtype) for k, v in local_dict_list[_c].items()}
++    if guarded_clients:  # [guard] if every update is excluded, keep the previous global model
++        global_dict, global_auxiliary = global_aggregate(
++            fed_args, global_dict, local_dict_list, guarded_weights, \
++            guarded_clients, round, proxy_dict=proxy_dict, \
++            opt_proxy_dict=opt_proxy_dict, auxiliary_info=(global_auxiliary, auxiliary_delta_dict)
++        )
++        global_dict = guard.after_aggregate(global_dict)  # [guard]
++    guard.end_round({"sampled": clients_this_round, "aggregated": guarded_clients,  # [guard]
++                     "weights": {c: guarded_weights[c] for c in guarded_clients},
++                     "train_s": train_s, "capture_s": capture_s, "lr": new_lr,
++                     "mps_driver_gb": torch.mps.driver_allocated_memory() / 2**30 if torch.backends.mps.is_available() else None})
+     set_peft_model_state_dict(model, global_dict)   # Update global model
+ 
+     # ===== Save the model =====
+@@ -128,4 +548,12 @@
+     if (round+1) % save_steps == 0  or round+1 == 10:
+         trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round+1}"))
+ 
+-    np.save(os.path.join(script_args.output_dir, "training_loss.npy"), np.array(training_loss))
+\ No newline at end of file
++    np.save(os.path.join(script_args.output_dir, "training_loss.npy"), np.array(training_loss))
++    guard.finish(global_dict, round + 1)  # [exp] next round's base on disk now, so an interruption resumes here
++    if gargs.exp_stop_file and os.path.exists(gargs.exp_stop_file) and round + 1 < fed_args.num_rounds:  # [exp]
++        print(f">> [exp] stop requested; paused after round {round + 1}")
++        sys.exit(75)
++
++guard.finish(global_dict, fed_args.num_rounds)  # [guard]
++save_file({k: v.detach().cpu().contiguous() for k, v in global_dict.items()},  # [guard]
++          os.path.join(script_args.output_dir, "final_global.safetensors"))

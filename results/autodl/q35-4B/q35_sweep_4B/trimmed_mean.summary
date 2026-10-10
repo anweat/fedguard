@@ -1,0 +1,4 @@
+== runs/q35_sweep_4B/rec_trimmed_mean/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009210534
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server trimmed_mean                server_post_aggregate        4      0       0       4     0.00  {"clients": ["client0", "client1", "client2", "client3", "client4"]}
+changes: rounds with weights=4, trimmed_mean: replace_global=4

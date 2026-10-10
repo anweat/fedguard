@@ -1,0 +1,4 @@
+== runs/q35_sweep_4B/rec_spectral_signatures/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009213040
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client spectral_signatures         client_pre_train            20      0     480      20    10.03  {"scored": 24, "masked": 2}
+changes: rounds with weights=4, spectral_signatures: mask_samples=20

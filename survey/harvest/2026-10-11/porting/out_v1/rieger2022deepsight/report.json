@@ -1,0 +1,104 @@
+{
+ "key": "rieger2022deepsight",
+ "verdict": "partial",
+ "plugins": [
+  {
+   "name": "deepsight",
+   "class": "DeepSight",
+   "side": "server",
+   "stages": [
+    "server_receive",
+    "server_aggregate",
+    "server_post_aggregate",
+    "server_distribute"
+   ],
+   "needs": [
+    "uploads",
+    "outgoing"
+   ],
+   "resources": [
+    "suspicious_labels"
+   ],
+   "acts": [
+    "transform_update",
+    "select_and_weight",
+    "transform_broadcast"
+   ]
+  }
+ ],
+ "steps_total": 15,
+ "steps_ported": 8,
+ "steps_outside": 1,
+ "ops_used": [
+  "fedguard.ops.cluster.density_clusters",
+  "fedguard.ops.geometry.cosine_distances_from_gram",
+  "fedguard.ops.states.weighted_average",
+  "fedguard.ops.update.clip_to_norm",
+  "fedguard.methods.server_update.update_gram"
+ ],
+ "new_helpers": [
+  {
+   "name": "_split_noise",
+   "lines": 12,
+   "generic": true,
+   "what": "把 HDBSCAN 的噪声点（-1）各自当成一个单点簇，使聚类结果能当作划分用（PCI 和簇共现距离矩阵都要用）。"
+  },
+  {
+   "name": "_membership_distances",
+   "lines": 4,
+   "generic": true,
+   "what": "Alg. 2 的 DistsFromClust：同一簇为 0、不同簇为 1 的 N×N 距离矩阵。"
+  },
+  {
+   "name": "_cluster_vote",
+   "lines": 9,
+   "generic": true,
+   "what": "PCI（Alg. 1 行 25-31）：簇内可疑标签占比达到 tau 就整簇剔除。"
+  }
+ ],
+ "missing_ops": [
+  {
+   "name": "hdbscan(D, min_cluster_size, min_samples)",
+   "what": "对预计算距离矩阵做通用 HDBSCAN 并返回完整簇划分。库里只有 density_clusters（把 eps 按 k 近邻距离中位数读出来的 DBSCAN 替身）和 majority_cluster（只留一个多数簇）。这里用 density_clusters 顶替，代价是：当很多更新近似重复时它的 eps 会塌到 0，只有逐位相同的更新才会同簇，而论文的余弦腿本应对缩放不变。"
+  },
+  {
+   "name": "ModelHandle 的逐输出单元概率前向",
+   "what": "ModelHandle 只有 losses/hidden/activations/per_sample_gradients/logprob/generate，没有任何方法返回逐输出单元的 logits 或概率，activations 还对 token 做池化；式 (6) 的 f(s;W)_i 和式 (7) 里输出层的权重行都取不到。"
+  }
+ ],
+ "missing_runtime": [
+  {
+   "what": "冻结基座模型的输出层本身（偏置 b、连到上一层的权重行 w）以及输出类别数 P",
+   "blocks": "步骤 1、3、4、5（输出层偏置增量、NEUPs、Threshold Exceedings、中位数分类）全部做不了：LoRA 状态字典里只有被适配模块的 lora_A/lora_B，更新里没有输出层，服务器也没有模型可读。"
+  },
+  {
+   "what": "服务器侧可运行的模型，以及一个返回输出概率的前向接口",
+   "blocks": "步骤 6、7（随机探针前向、DDifs）：论文每客户端每轮要 3×20000 次前向，这个运行时一次也花不出去（服务器侧适配器默认不给 model_handle，ModelHandle 也没有概率接口）。"
+  },
+  {
+   "what": "论文自己的逐模型判定（suspicious/benign）",
+   "blocks": "步骤 12 的输入：PCI 本身实现了，但只能吃 `suspicious_labels` 资源；没有真正的检测层时它永远不剔除任何客户端，过滤层等于不存在。"
+  }
+ ],
+ "deviations": [
+  "过滤层（步骤 1、3、4、5、6、7）没有移植：LoRA 状态字典没有输出层，服务器也没有能跑前向的模型。因此步骤 8 的聚类集成只剩论文五条腿里的一条——用因子空间更新向量（uploaded - broadcast）的余弦距离替代输出层偏置增量的余弦距离；步骤 10 合并出的距离矩阵就是这一条腿的 0/1 隶属矩阵，PCI 也没有自己的判定可投。",
+  "资源 `suspicious_labels` 不在论文里：论文的服务器自己算出这个判定，需求 R3 还要求防御全自主、不需要验证数据或先验。它出现只是因为步骤 1-7 在这个运行时做不了；传空映射时过滤层关闭，插件只剩裁剪与等权聚合。",
+  "步骤 14（等权 FedAvg）按规则 3 属于宿主的标准聚合，插件只把保留客户端的权重钉成 1.0（忽略上报的 num_examples），求和与归一化仍由框架做。",
+  "步骤 15 只能用 transform_broadcast 表达：SERVER_POST_AGGREGATE 存下每簇一个 LoRA，下一轮 SERVER_DISTRIBUTE 按簇下发；框架的全局模型仍是 FedAvg 的结果，没有 replace_global。"
+ ],
+ "open_choices": [
+  "论文没给 HDBSCAN 参数（最小簇大小、最小样本数、是否允许单簇）：用库里的替身 fedguard.ops.cluster.density_clusters，取它的默认 min_samples=3、scale=2.0。",
+  "论文没说噪声点（-1）在 PCI 里算什么：每个噪声点自成一簇（共享一个噪声簇会让一个可疑点连坐其他噪声点）。",
+  "裁剪边界 S 取本轮所有上传（含被剔除的）L2 范数的中位数——论文的 'all updates, including the filtered model updates' 没说是哪个集合；偶数个取中间两个的均值；只有超过边界的客户端才被改写。",
+  "'最后一轮'在库里没有对应物：由调用方用 clusterwise_round 指定哪一轮的上传按簇聚合，簇模型随下一轮下发；被剔除的客户端按论文原话也参与该簇均值（用同一个裁剪边界）；在该轮没有上传的接收方保留框架的全局模型。",
+  "少于三个客户端的一轮什么都不做，并清掉上一轮留下的标签/边界/剔除集合，避免用旧判定剔这一轮的客户端。",
+  "标签映射里没提到的客户端算作良性。"
+ ],
+ "needs_from_authors": [
+  "Alg. 2 里 HDBSCAN 的实际调用参数（min_cluster_size、min_samples、是否允许单簇）以及噪声点 -1 参与 PCI 的方式——论文都没写，只有作者代码能确定。",
+  "随机探针输入的具体分布、input dim 的来源与取值，以及 f(s;G_t)_i 接近 0 时 DDif 除法的数值保护。",
+  "'all updates, including the filtered model updates' 到底指哪个集合（含被剔除簇的更新，还是只含被接受但未裁剪的），以及末轮被过滤模型如何取得簇归属、每个被过滤客户端收到哪个模型。"
+ ],
+ "confidence": "medium",
+ "confidence_reason": "代码层面可信：插件能导入、契约成立、类说明五个小节齐全，5 个机制测试在本机（torch 2.14/py3.12）和项目自带 verify.py（legion，fl311）上都是 passed，静态检查无违规导入或文件/网络访问。但移植本身只是 partial：论文的检测层（步骤 1、3-7）一行都没有；步骤 8 只跑了五条腿中的一条；步骤 12 的标签来自资源而不是论文的检测器；HDBSCAN 是库里的替身；没有和论文数值做过任何比对。"
+}

@@ -1,0 +1,336 @@
+{
+ "key": "ax2210.07714",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 100896,
+    "outputTokens": 142409,
+    "cacheReadTokens": 7622656,
+    "cacheWriteTokens": 0,
+    "totalTokens": 7865961
+   },
+   "seconds": 645.0,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 90008,
+ "report": {
+  "key": "ax2210.07714",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "crowdguard_server",
+    "class": "CrowdGuardServer",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads",
+     "reports"
+    ],
+    "resources": [],
+    "acts": [
+     "select_and_weight"
+    ]
+   },
+   {
+    "name": "crowdguard_validator",
+    "class": "CrowdGuardValidator",
+    "side": "client",
+    "stages": [
+     "client_post_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle",
+     "received_model",
+     "reports"
+    ],
+    "resources": [
+     "label_of"
+    ],
+    "acts": []
+   }
+  ],
+  "steps_total": 16,
+  "steps_ported": 14,
+  "steps_outside": 2,
+  "ops_used": [
+   "fedguard.ops.cluster.agglomerative",
+   "fedguard.ops.cluster.dbscan",
+   "fedguard.ops.cluster.distances",
+   "fedguard.ops.states.flatten",
+   "fedguard.ops.states.unflatten",
+   "fedguard.ops.transform.pca"
+  ],
+  "new_helpers": [
+   {
+    "name": "_betacf / _betainc",
+    "lines": 44,
+    "generic": true,
+    "what": "正则化不完全 beta（修正 Lentz 连分式）：torch 2.10 的 StudentT/FisherSnedecor.cdf 直接 NotImplementedError，torch.special 也没有 betainc，scipy 不在允许导入清单里"
+   },
+   {
+    "name": "_t_pvalue / _f_pvalue / _ks_pvalue",
+    "lines": 44,
+    "generic": true,
+    "what": "Alg. 4 的 t 检验、F 检验、KS 检验的 p 值；样本不足或方差为 0 时返回 1.0（跳过该检验）"
+   },
+   {
+    "name": "_boxplot_outlier / _sigma_outlier / _significant",
+    "lines": 22,
+    "generic": true,
+    "what": "1.5 IQR 箱线图离群、双侧 3σ 离群，以及五项取或的显著性判定"
+   },
+   {
+    "name": "_row_cosine / _row_distance",
+    "lines": 8,
+    "generic": true,
+    "what": "两个同形矩阵逐行配对的余弦与欧氏距离，即 S5 的 dist(DLO_locals, DLO_globals)"
+   },
+   {
+    "name": "_relative_signed_square",
+    "lines": 10,
+    "generic": false,
+    "what": "S6 的 |rel-1|*(rel-1) 与零分母约定"
+   },
+   {
+    "name": "_common_layers",
+    "lines": 7,
+    "generic": true,
+    "what": "各模型公共层输出的交集（一次 forward 里 handle 报告的层名取交并排序）"
+   },
+   {
+    "name": "_prune / _aggregated_vote",
+    "lines": 47,
+    "generic": false,
+    "what": "Alg. 2 的迭代剪枝（含安全中止）与 Alg. 3 的堆叠聚类投票聚合"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "fedguard.ops.geometry 的逐行成对距离",
+    "what": "cosine_to / distance_to 只接受一个参照向量，cosine_matrix / pairwise_sq_distances 只作用于同一矩阵；S5 需要两个同形矩阵按样本逐行配对的距离与余弦，只能在插件里写 _row_cosine / _row_distance"
+   },
+   {
+    "name": "假设检验算子",
+    "what": "fedguard.ops 没有任何统计检验（两样本 t、F、KS、箱线图、3σ）；scipy 不允许导入，torch 也没有可用的 t/F CDF，必须在插件里实现正则化不完全 beta 与三个 p 值"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "本轮每个客户端的本地模型 Lt_i（S2/S3 的输入）",
+    "where": "服务器侧 SERVER_RECEIVE 收集；客户端侧下一轮 CLIENT_POST_TRAIN 验证",
+    "provided": "partly",
+    "via": "服务器读得到 ctx.uploads.state(cid) / base_state()；但库里没有同一轮内的服务器→客户端通道，只能放进 Findings.attachments，由宿主在下一轮 begin_round 交付，客户端用 ctx.reports.attachments('<server plugin>.pack.<cid>') 取回（晚一轮）"
+   },
+   {
+    "data": "本轮全局模型 Gt（S5 距离的参照）",
+    "where": "客户端，验证时",
+    "provided": "partly",
+    "via": "服务器把该轮的广播基 ctx.uploads.base_state() 一并打进 pack；客户端当前的 received_model 已经是下一轮的全局模型，不能用作参照"
+   },
+   {
+    "data": "验证客户端自己的模型 Lt_j（S6 相对化的分母）",
+    "where": "客户端，验证时",
+    "provided": "yes",
+    "via": "同一 pack 中含该客户端上一轮的上传；不在 pack 中（上轮未参与）时插件不投票"
+   },
+   {
+    "data": "验证客户端的本地样本 Dj（论文默认 2560 条）",
+    "where": "客户端 CLIENT_POST_TRAIN",
+    "provided": "yes",
+    "via": "ctx.data.samples()"
+   },
+   {
+    "data": "每个样本的标签（S7 按标签求均值）",
+    "where": "客户端，验证时",
+    "provided": "partly",
+    "via": "库里没有标签字段（DataView.manifest 只有 hash/source/length），必须由防御方以 resources={'label_of'} 注入 sample -> label 的可调用对象"
+   },
+   {
+    "data": "逐样本、逐层的深层输出 DLO（S4/S5）",
+    "where": "客户端，验证时",
+    "provided": "yes",
+    "via": "ctx.model_handle.lora(state) + ModelHandle.activations(samples, select=全真, pool=...)，代价记在 Findings.cost（forward_samples）"
+   },
+   {
+    "data": "对每个候选模型做一次前向的模型句柄",
+    "where": "客户端，验证时",
+    "provided": "partly",
+    "via": "句柄要由宿主交给 begin_round；已发布宿主里客户端 model_handle 是 glue（Flower）或需要改脚本（OpenFedLLM），不交就没有 DLO"
+   },
+   {
+    "data": "二值投票回传（S13）",
+    "where": "客户端 CLIENT_POST_TRAIN → 服务器 SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "Findings.messages（≤64 KiB 的扁平 0/1 列表）随上传到达，服务器用 ctx.uploads.reports.messages('<client plugin>.votes') 读"
+   },
+   {
+    "data": "投票矩阵与投票者身份/顺序（S14 的输入）",
+    "where": "服务器 SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "ctx.uploads.clients 与消息里的 pack_clients / pack_round 对齐；ctx.state 保存上一轮 pack 的轮号与客户端列表"
+   },
+   {
+    "data": "剔除决定与等权权重（S15/S16）",
+    "where": "服务器 SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "Decision(excluded=..., weights={cid: 1.0}) 配 acts={'select_and_weight'}；真正的求和平均由宿主聚合完成"
+   },
+   {
+    "data": "跨轮的 pack 索引（两代）",
+    "where": "服务器，跨轮",
+    "provided": "yes",
+    "via": "ctx.state（插件私有、跨位置跨轮）保存 sent / pending 的 {round, clients}"
+   },
+   {
+    "data": "本地训练过程（损失/梯度/样本）",
+    "where": "不需要",
+    "provided": "yes",
+    "via": "论文明确防御只在聚合前过滤；插件不声明 loss / gradients / mask，不改训练"
+   }
+  ],
+  "external_state": [
+   "每个客户端的本地验证数据及其标签来源（label_of 背后的数据管线）；论文默认每客户端 2560 条本地样本",
+   "客户端侧模型句柄（包着正在训练的模型，由宿主/适配器提供）；服务器侧不需要模型",
+   "服务器插件在 ctx.state 里保存的两代 pack 索引，以及进入通道的整轮 LoRA 状态张量（与论文服务器飞地内持有 {Lt_1..Lt_n} 对应）",
+   "TEE 与远程认证基础设施（S1）、加密上传与相互认证（S2）：库不建模，只能留在库外",
+   "验证样本的规模/采样策略：本移植用本地全量样本，没有实现 Sect. VI-C 提到的代表性子集"
+  ],
+  "missing_runtime": [
+   {
+    "what": "一轮内没有服务器→客户端的推送：server 侧 findings 的 messages/attachments 只在下一轮 begin_round（或训练前的 SERVER_EXCHANGE）交付",
+    "blocks": "S3 无法在收集到 Lt_i 的同一轮把模型发回客户端；S4-S13 的验证、投票与剔除整体滞后一轮"
+   },
+   {
+    "what": "attachments 单插件每轮默认上限 64 MiB、messages 上限 64 KiB",
+    "blocks": "真实 LLM（7B、r=8，每份 LoRA 十几 MB）× n 个客户端在默认上限下 pack 不进去；S3 在真实规模要靠调高上限或库外分片/量化"
+   },
+   {
+    "what": "客户端侧 model_handle 在已发布宿主里不是原生能力（hosts.py：Flower 为 glue，OpenFedLLM 靠改脚本；服务器侧也要 probe 才有句柄）",
+    "blocks": "S4 的 DLO 前向：宿主不把训练中的模型句柄交给客户端插件时取不到层输出"
+   },
+   {
+    "what": "没有样本标签这一类数据（DataView/SampleRecord 只有 hash、source、length）",
+    "blocks": "S7 的按标签平均必须靠防御方资源 label_of"
+   },
+   {
+    "what": "没有 TEE / 远程认证 / 加密信道的运行时（库只声明 messages/attachments 未经核实）",
+    "blocks": "S1 与 S2；投票和 pack 都是普通通道内容，投票者身份无法认证"
+   }
+  ],
+  "deviations": [
+   "一轮滞后：pack 在下一轮 begin_round 才到客户端，投票随该轮上传回服务器，因此第 t 轮的模型在第 t+1 轮被判定、剔除也落在第 t+1 轮（库没有同一轮内 SERVER_RECEIVE 之后的服务器→客户端通道）",
+   "被验证的是上一轮的模型集合；全局参照取 pack 里的广播基（那轮上传的起点），不是客户端当前的 received_model",
+   "模型是冻结基座上的 LoRA 适配器，经 ModelHandle.lora 装载，而不是整份 DNN 参数集",
+   "DLO 取 handle 暴露的所有子模块的池化输出（pool=mean、select 全真），不是固定 CNN 的原始逐层激活；『所有层』等价于 handle 报告的所有子模块",
+   "投票是未认证、未加密的普通通道消息；S1 的飞地与远程认证、S2 的加密上传都不在库里",
+   "等权聚合由插件给出权重 1.0，真正的求和平均由宿主 FedAvg 完成（S16 中只有权重规则在插件里）",
+   "Cosine 与 Euclidean 两套剪枝各自独立运行，flag 取并集（脚注 7 说各自独立，但没说同一投票数组如何合并）",
+   "客户端不评估自己的模型（脚注 15），自己的位置固定投 1；客户端若不在 pack 中则不投票（论文未定义该情形）",
+   "缺失或超时的投票直接忽略，投票矩阵只由收到的行组成（论文未说明投票缺失时 Alg. 3 的输入如何构造）"
+  ],
+  "open_choices": [
+   "PCA 用 fedguard.ops.transform.pca（中心化 SVD、符号按库的约定固定），只取第一主成分；论文没写是否标准化、用什么求解器",
+   "Alg. 4 line 11 的 upper/lower 按 value - median 的符号分组（该行算的就是这个量），而不是原始 PC 值的符号",
+   "方差齐性实现为 F 检验（Alg. 4 line 19），不是脚注 10 同时提到的 Levene 检验；F 检验取双侧",
+   "箱线图离群用 1.5×IQR，3σ 用双侧与总体标准差；论文只写『箱线图』与『3σ 区间』",
+   "某一侧样本数少于 2 或方差为 0 的检验跳过而不是判显著（否则退化输入会被当成显著）",
+   "按标签平均是算术平均；标签按字符串比较，只存在本地数据中出现的标签",
+   "HLBIM 特征顺序为标签优先（字符串排序），标签内按层名排序；论文没给 lab 维与 layer 维的拼接顺序",
+   "分母为 0 时：候选距离也为 0 则 rel=1，否则 rel=1+candidate（论文只写『相等则比值为 1』）",
+   "安全中止时 MIN(malicious_models) 取 PC 值最小的被标记者（论文未定义 MIN）",
+   "两簇大小相同时：剪枝阶段取平均 |PC| 更大的簇为『小簇』，投票聚合阶段取良性票更多的簇为『大簇』；DBSCAN 用欧氏距离，eps=0.5 因此只合并完全相同的投票向量",
+   "投票行长度不符、取值不是 0/1、或 pack_round 与当前 pack 不符的行一律忽略；没有可用投票行时所有客户端权重 1",
+   "候选模型少于 3 个、本地样本少于 2 个、或 handle 没有可用的层输出时不剪枝也不发投票",
+   "pack 用 states.flatten/unflatten 编解码，unflatten 的模板取 ctx.received_model.state() 的键与形状（假定相邻轮 LoRA 结构一致）",
+   "S16 的 n 取剩余模型数（插件给幸存者等权、宿主按权重和归一化），论文只说 aggregate the remaining models"
+  ],
+  "needs_from_authors": [
+   "PCA 的预处理细节（是否中心化/标准化、求解器、符号约定）",
+   "Alg. 4 line 11 的分组到底按原始 PC 值还是按 value - median",
+   "F-Test 与脚注 10 的 Levene-Test 的取舍",
+   "箱线图离群倍数（是否 1.5×IQR）与 3σ 是否双侧",
+   "HLBIM 的最终形状与 lab / layer 两维的拼接顺序",
+   "DLO 的具体形式（卷积层是否展平、是否包含最终分类层、是否归一化）",
+   "Cosine 与 Euclidean 两轮剪枝如何写入同一个投票数组",
+   "AGGLOM 的距离度量与 linkage、DBSCAN 在二值投票向量上的度量",
+   "安全中止时 MIN(malicious_models) 的定义",
+   "验证投票缺失/超时的处理，以及剔除后 Eq. 1 的 n 是否重取剩余模型数",
+   "每个客户端的验证样本规模与是否子采样（论文默认全部，Sect. VI-C 又提到可用代表性子集）"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "S3-S16 的检测与决定全部实现并在库上跑通：静态导入检查、契约检查、类说明小节与 3 个无模型测试（含干净对照与一个说谎投票者）都通过，额外压力场景（2 个投毒、多数投毒触发安全中止、全同 pack）不崩；但架构只能滞后一轮（S3 与投票回传），S1/S2 在库外，DLO 从图像网络层输出改为 handle 的子模块池化输出，且论文有 15 处以上未规定处由移植者选择，未在真实模型上核对与原实现的等价性。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "CrowdGuardServer",
+    "name": "crowdguard_server",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "reports",
+     "uploads"
+    ],
+    "resources": [],
+    "acts": [
+     "select_and_weight"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "open_choices"
+    ],
+    "lines": 90
+   },
+   {
+    "class": "CrowdGuardValidator",
+    "name": "crowdguard_validator",
+    "side": "client",
+    "stages": [
+     "client_post_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle",
+     "received_model",
+     "reports"
+    ],
+    "resources": [
+     "label_of"
+    ],
+    "acts": [],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 135
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 472,
+  "test_lines": 129,
+  "test_summary": "3 passed in 0.95s"
+ },
+ "status": "passed",
+ "tokens": 243305,
+ "cache_read_tokens": 7622656,
+ "seconds": 645.0
+}

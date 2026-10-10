@@ -1,0 +1,284 @@
+{
+ "key": "rieger2022deepsight",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 90204,
+    "outputTokens": 96487,
+    "cacheReadTokens": 2429056,
+    "cacheWriteTokens": 0,
+    "totalTokens": 2615747
+   },
+   "seconds": 474.1,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 85362,
+ "report": {
+  "key": "rieger2022deepsight",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "deepsight",
+    "class": "DeepSight",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads"
+    ],
+    "resources": [],
+    "acts": [
+     "transform_update",
+     "select_and_weight"
+    ]
+   }
+  ],
+  "steps_total": 15,
+  "steps_ported": 10,
+  "steps_outside": 1,
+  "ops_used": [
+   "fedguard.ops.cluster.distances",
+   "fedguard.ops.cluster.density_clusters",
+   "fedguard.ops.geometry.cosine_distances_from_gram",
+   "fedguard.ops.lowrank.gram",
+   "fedguard.ops.states.delta",
+   "fedguard.ops.states.module_info",
+   "fedguard.ops.states.norm",
+   "fedguard.ops.update.clip_to_norm"
+  ],
+  "new_helpers": [
+   {
+    "name": "readout_row_l1",
+    "lines": 9,
+    "generic": true,
+    "what": "低秩矩阵 scale*U@V 的逐行 L1 范数（式 7 的 Σ_h|Δw_ih|），一次只形成一行，不物化 P×d_in 矩阵；对应式 (7) 的权重项"
+   },
+   {
+    "name": "threshold_exceedings",
+    "lines": 6,
+    "generic": true,
+    "what": "式 (8)(9)(10)(11)：逐模型归一化能量、ξ=max(tf,1/P)·C_max、TE=#{C_i>ξ}"
+   },
+   {
+    "name": "co_membership",
+    "lines": 6,
+    "generic": true,
+    "what": "Alg. 2 的 DistsFromClust：同簇 0、异簇 1 的距离矩阵"
+   },
+   {
+    "name": "groups_of",
+    "lines": 6,
+    "generic": true,
+    "what": "把簇标号拆成下标分组，噪声点 -1 各成一组（论文未规定噪声点怎么办）"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "output_layer_bias_delta",
+    "what": "从 LoRA 状态字典拿不到输出层偏置：LoRA 适配器没有 bias 项，ClientUpdate.lora / UploadView.state / base_state 里只有 lora_A、lora_B，于是式 (7) 的 |Δb_i| 与式 (13)(14) 的偏置余弦都无从计算（不是近似为零，而是根本没有这个数据）"
+   },
+   {
+    "name": "random_probe_forward",
+    "what": "没有算子能对服务器自己生成的随机输入向量做前向。ModelHandle.activations/losses/hidden 只接受 adapter 能分词的 samples（序列），不能喂 input_dim 维随机向量；服务器默认也没有模型，Alg. 1 的 input dim 参数无处可取"
+   },
+   {
+    "name": "output_layer_probabilities",
+    "what": "没有算子返回“每个样本、每个输出神经元的概率”。ModelHandle.activations(select=<输出模块>, what='output') 是唯一可能路径，但它给的是子模块输出（logits）且只对 tokenized 样本；ProbeView.score 只返回命名标量"
+   },
+   {
+    "name": "row_l1_of_lowrank",
+    "what": "低秩乘积的逐行 L1 范数（式 7 的权重项）在 ops.lowrank 里没有：L1 不像 Frobenius 内积那样能从因子的小 Gram 矩阵算出来，只能逐行形成。已在插件文件里写成 readout_row_l1"
+   },
+   {
+    "name": "hdbscan",
+    "what": "没有精确的 HDBSCAN。ops.cluster.majority_cluster 内部会调 sklearn 的 HDBSCAN，但只保留 min_cluster_size=n//2+1 的那一个多数簇，形状与 Alg. 2 要的多簇+噪声不符；density_clusters 是“论文没给参数时的替身”，用的是 DBSCAN + 数据驱动的 eps"
+   },
+   {
+    "name": "clusterwise_aggregation",
+    "what": "没有任何动作能返回“按簇算出的多个聚合结果”。select_and_weight 只产生一个聚合，replace_global 只替换一个全局模型；transform_broadcast 能按客户端下发不同状态，但多个聚合模型得插件自己从 ctx.uploads 里算"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "输出层偏置向量 b(G_t) 与每个上传的 b(W_{t,k})（步骤 1、2 的输入，也是式 (7) 的第一项）",
+    "where": "服务器侧，SERVER_RECEIVE / SERVER_AGGREGATE，收到全部更新之后",
+    "provided": "no",
+    "via": "LoRA 上传里没有偏置：ClientUpdate.lora 只有 lora_A/lora_B，UploadView.state/factors/base_state 都没有 bias 项；服务器默认也没有基座模型（model_handle 由防御方自备，且该协议也不暴露偏置）。这一步在任何 LoRA 部署里都取不到，不是参数问题"
+   },
+   {
+    "data": "输出层（readout 模块）的权重增量 ΔW_{t,k} = W_{t,k} - W_{G_t}",
+    "where": "服务器侧，SERVER_RECEIVE",
+    "provided": "partly",
+    "via": "UploadView.increment(cid, module) 给出 LowRank 形式的 B_kA_k - B_gA_g，精确且不物化；但仅当该模块被 LoRA 适配时它才出现在 UploadView.modules 里。常规 LoRA 目标是注意力/MLP 投影，输出头通常不被适配，此时只能 skipped"
+   },
+   {
+    "data": "输出类别数 P（式 10 的 1/P）",
+    "where": "服务器侧，SERVER_RECEIVE",
+    "provided": "yes",
+    "via": "UploadView.factors(cid, readout)[1].shape[0]，即该模块 lora_B 的行数。论文没说服务器怎么获知 P（架构是否公开），这里从形状读出来"
+   },
+   {
+    "data": "3 个种子各 20000 条、input_dim 维的随机输入向量（步骤 6）",
+    "where": "服务器侧，SERVER_RECEIVE / SERVER_AGGREGATE",
+    "provided": "no",
+    "via": "没有算子能对任意输入向量做前向。ModelHandle 的方法都只接受 samples（adapter 负责分词/取特征），服务器也默认没有模型；即使防御方按 harness.server_guard(..., probe=...) 自备句柄，也喂不进 input_dim 维随机向量。input_dim 本身在 RunSpec / ModelHandle 里都没有"
+   },
+   {
+    "data": "每个模型在探针上的输出层概率 f(s_m; W) 与全局模型的 f(s_m; G_t)（步骤 7，式 6）",
+    "where": "服务器侧，SERVER_RECEIVE / SERVER_AGGREGATE",
+    "provided": "no",
+    "via": "ModelHandle.activations(select=<输出模块名>, what='output', pool='none') 能拿到子模块输出（logits），但要先 softmax 才成概率，且论文要求的是“输出层概率”这一层语义；ProbeView.score(lora) 只返回命名标量字典，没有 P 维向量。DDif 因此整条缺失"
+   },
+   {
+    "data": "本轮全局模型 G_t",
+    "where": "服务器侧，SERVER_RECEIVE（UploadView.base_state()）与 SERVER_POST_AGGREGATE（AggregateView.base/result）",
+    "provided": "yes",
+    "via": "UploadView.base_state()、AggregateView.base / AggregateView.global_delta()"
+   },
+   {
+    "data": "本轮收到的全部单条明文更新（步骤 8–13 都要）",
+    "where": "服务器侧，SERVER_RECEIVE 与 SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "ctx.uploads（UploadView.clients/factors/state/increment）。安全聚合下宿主把 uploads 放进 RunSpec.unavailable，契约会在第一轮之前直接拒绝该插件（论文 §IX 也承认 DeepSight 与安全聚合不兼容）"
+   },
+   {
+    "data": "每条更新的 L2 范数，用来取中位数 S（步骤 13，式 12）",
+    "where": "服务器侧，SERVER_RECEIVE",
+    "provided": "yes",
+    "via": "states.norm(states.delta(UploadView.state(cid), UploadView.base_state()))，等价于 UploadView.factor_delta(cid).norm()；裁剪用 update.clip_to_norm(state, base, S)"
+   },
+   {
+    "data": "本轮的最终簇划分（步骤 12 的整簇投票要）",
+    "where": "服务器侧，轮内 SERVER_RECEIVE → SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "插件自己算，用 ctx.state 在轮内两个位置之间传（不需要库外状态，也不需要跨轮状态：论文明确只看当前轮）"
+   },
+   {
+    "data": "HDBSCAN（步骤 8、11）",
+    "where": "服务器侧，SERVER_RECEIVE",
+    "provided": "partly",
+    "via": "ops.cluster.density_clusters（库自述是“论文没给 HDBSCAN 参数时的替身”，DBSCAN+数据驱动 eps）；ops.cluster.dbscan 可以自己给 eps；精确 sklearn HDBSCAN 只在 majority_cluster 内部、且只留一个多数簇，不符合 Alg. 2 需要多簇+噪声点的形状"
+   },
+   {
+    "data": "“最后一轮”这个事实，以及按簇分别聚合、按簇下发（步骤 15，§V-C）",
+    "where": "聚合发生在 SERVER_POST_AGGREGATE（那里有 ctx.uploads 和 ctx.aggregate），下发发生在下一轮 SERVER_DISTRIBUTE（那里有 outgoing 和 transform_broadcast）",
+    "provided": "partly",
+    "via": "两端的素材都在：SERVER_POST_AGGREGATE 能读到全部 uploads 自己算簇均值，SERVER_DISTRIBUTE 能用 transform_broadcast 给每个客户端不同的 LoRA。缺的是触发条件——StageContext/RunSpec 里没有总轮数或“本轮是最后一轮”的信号，也没有训练结束后的收尾阶段（OpenFedLLMGuard.finish 不跑插件），所以只能整段不做"
+   },
+   {
+    "data": "缩放不变性（定理 1、2 与 App. H 的前提）",
+    "where": "不额外取数",
+    "provided": "yes",
+    "via": "NEUP 逐模型归一化、余弦与 A/B 的整体缩放无关，因此判定对更新整体缩放不变；测试里把同一情形放大 25 倍验证判定不变"
+   },
+   {
+    "data": "本轮客户端集合 N（不抽样，遍历全部）",
+    "where": "服务器侧，两个位置都有",
+    "provided": "yes",
+    "via": "ctx.uploads.clients / ctx.participants"
+   }
+  ],
+  "external_state": [
+   "readout 模块名：哪个 LoRA 模块代表输出层（构造函数参数 readout，默认取 layer 最大的适配模块）。论文假设服务器知道输出层与 P，但没说怎么知道；在 LoRA 里这必须由部署方给出",
+   "服务器侧模型句柄（如果要实现步骤 6–7）：必须防御方自备，宿主不提供。本插件没声明 model_handle，因此不需要",
+   "HDBSCAN 实现：库用 density_clusters 替身（可选 sklearn 只在 majority_cluster 里用到，形状不符）",
+   "跨轮状态：无。DeepSight 只按当前轮计算（§VIII-B 明确批评 FoolsGold 跨轮累积），插件除了轮内 kept/why 交接外不保留任何状态"
+  ],
+  "missing_runtime": [
+   {
+    "what": "服务器侧没有模型，也没有“用服务器自己生成的随机输入跑前向”的入口；ModelHandle 只接受 adapter 能分词的样本序列，input_dim 也没有来源",
+    "blocks": "步骤 6（随机探针前向）与步骤 7（DDif）：5 个视图里的 3 个 DDif 视图整条缺失，Alg. 2 的共识聚类只平均 2 个距离矩阵而不是 5 个"
+   },
+   {
+    "what": "没有“最后一轮”的信号：RunSpec/StageContext/ctx.round 里都没有总轮数，也没有训练结束后的插件位置",
+    "blocks": "步骤 15（末轮按簇聚合与按簇下发）"
+   },
+   {
+    "what": "没有任何动作能产生多于一个聚合结果（select_and_weight 只给一次聚合的权重，replace_global 只换一个全局模型），宿主也没有“每簇一个模型”的接口",
+    "blocks": "步骤 15 的按簇聚合，即使知道是末轮也搬不进来"
+   },
+   {
+    "what": "常规 LoRA 部署不把输出头纳入适配，UploadView.modules 里就没有可当输出层的模块",
+    "blocks": "整个过滤层（步骤 2–5、8–12）：插件在第一轮就报 skipped，只剩裁剪层与等权聚合在起作用。这是本方法在 LoRA 场景下的结构性障碍，不是实现缺陷"
+   }
+  ],
+  "deviations": [
+   "模型更新换成 LoRA 因子空间的增量（规则 4 允许）：E_i 与余弦都在 readout 模块的 B_kA_k - B_gA_g 上算，而不是完整权重矩阵",
+   "式 (7) 的偏置项 |Δb_i| 直接去掉：LoRA 适配器不带 bias，客户端上传里没有任何偏置项，b(W_{t,k}) 与 b(G_t) 在可观测范围内相同，所以这一项为零而不是被近似",
+   "式 (13)(14) 的余弦视图换成 readout 权重增量的 Frobenius 余弦：偏置增量全为零，原视图是退化的（ops.geometry 对零向量一律给距离 1）；换成权重增量用的是同一个“缩放不变的成对几何”想法，但向量空间不同",
+   "DDif 视图（步骤 6–7）不实现：见 missing_ops / missing_runtime。共识聚类因此只平均 2 个（NEUP、readout 余弦）而不是 5 个距离矩阵",
+   "步骤 8 的 HDBSCAN 用 ops.cluster.density_clusters 代替：论文只写“用 McInnes 等人的实现”，没给 min_cluster_size / min_samples",
+   "步骤 14 的等权 FedAvg：插件只提出权重（Decision.weights 全 1.0），真正的平均由宿主做，属于规则 3 的“标准聚合”",
+   "步骤 15 整段不做，理由见 missing_runtime"
+  ],
+  "open_choices": [
+   "readout 是谁：默认取 layer 号最大的适配模块（同层按名字），构造函数可显式指定；论文只说“输出层”，没说服务器怎么定位它",
+   "P 的来源：取 readout 模块 lora_B 的行数；论文没说服务器怎么获知输出类别数",
+   "噪声点怎么算：density_clusters 返回的 -1 各自成一个单点簇（论文对 HDBSCAN 噪声点在 PCI 中的处理完全没说）",
+   "偶数个客户端的中位数：取两个中间值的平均（torch.quantile 线性插值），与库里 FLAME 的写法一致；论文未说明",
+   "边界相等：TE <= boundary 判可疑（跟 Alg. 1 第 22 行，而不是 §IV-C 正文的严格小于）",
+   "裁剪边界 S 的集合：按 §V-B 字面“all updates, including the filtered”，取本轮全部上传（含被剔除簇）的范数中位数；论文这句话本身有歧义",
+   "readout 增量为零的客户端：没有 NEUP，给 TE = 0（最低），于是按规则判可疑；论文未覆盖这种退化情形",
+   "density_clusters 的参数 min_samples=3、scale=2.0 用库默认值；论文没给 HDBSCAN 参数",
+   "少于 min_clients=4 个上传时不判定（density_clusters 需要 n > min_samples 才有意义）；论文未说明簇为空/只有一个簇时怎么办",
+   "聚合层是无条件的：即使过滤层 skipped 也照样给等权（§II-A 要求等权，与过滤是否成功无关）"
+  ],
+  "needs_from_authors": [
+   "HDBSCAN 的具体超参数（min_cluster_size、min_samples）以及噪声点在 PCI 里算不算一个簇、怎么投票",
+   "随机输入向量的分布、维度 input_dim 的来源，以及 3 个种子是否跨轮固定",
+   "DDif 除法在 f(s_m; G_t)_i 为 0 或接近 0 时的数值保护（论文完全没提）",
+   "式 (8) 分母求和范围（抽取文本印作 j=0..P，与神经元编号 1..P 冲突）与式 (7) 权重求和起点",
+   "“最后一轮”的界定、被过滤模型在末轮按簇聚合时如何参与、被过滤客户端收到哪个模型",
+   "裁剪边界 S 的确切集合（含不含被剔除簇）以及式 (12) 缩放后的模型显式写法",
+   "参考实现：TE 与中位数的并列处理、聚类为空/单簇/簇大小为 1 时的行为，只有拿到作者代码才能确定；本次没有对照作者代码或数据做任何数值复现"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "插件本身在真实 fedguard 上跑通并被 5 个无模型测试覆盖（剔除、裁剪、等权、缩放不变、无 readout 时 skipped，0.03 秒），接口只用了 <reference> 里列出的东西。但方法的三层里最核心的过滤层依赖完整模型的输出层，而这在 LoRA 上传里根本不存在：偏置项为零、余弦视图被迫换空间、DDif 整条缺失，15 步里 4 步没搬、1 步属于宿主，论文的数值结果无法复现，也没有和作者代码对照过。另外没做 clamp：偏置项被去掉是精确的（LoRA 无 bias），但用 readout 权重增量替代偏置增量是实质性的语义改动，所以我给 medium 而不是 high。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "DeepSight",
+    "name": "deepsight",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads"
+    ],
+    "resources": [],
+    "acts": [
+     "select_and_weight",
+     "transform_update"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 111
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 165,
+  "test_lines": 85,
+  "test_summary": "5 passed in 1.17s"
+ },
+ "status": "passed",
+ "tokens": 186691,
+ "cache_read_tokens": 2429056,
+ "seconds": 474.1
+}

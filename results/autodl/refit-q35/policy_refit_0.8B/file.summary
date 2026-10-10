@@ -1,0 +1,6 @@
+== runs/policy_refit_0.8B/rec_file/_0__0_300_fedavg_c5s5_i4_b4a1_l256_r16a32_20261011034003
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client lisa_proximal               client_pre_step             40      0       0      40     0.00  {"drift": 0.14655118505477793}
+server effect_stats                server_receive               2      0       0       0     0.00  {"clients": ["client0", "client1", "client2", "client3", "client4"], "gram": [[0.03532266908887142, 0.00599613
+server krum                        server_aggregate             2      0      10       0     0.00  {}
+changes: rounds with clients excluded=2, lisa_proximal: transform_gradients=40

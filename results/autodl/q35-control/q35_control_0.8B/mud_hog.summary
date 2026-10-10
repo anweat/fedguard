@@ -1,0 +1,5 @@
+== runs/q35_control_0.8B/rec_mud_hog/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261010013312
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server mud_hog                     server_aggregate             4      0       0       0     0.00  {}
+server mud_hog                     server_receive               4      0      15       0     0.00  {"flagged": {"client1": "targeted", "client3": "targeted"}, "unreliable": ["client4"], "confirmed": ["client1"
+changes: rounds with clients excluded=2, rounds with clients reweighted=3

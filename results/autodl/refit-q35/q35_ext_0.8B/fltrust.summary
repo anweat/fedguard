@@ -1,0 +1,5 @@
+== runs/q35_ext_0.8B/rec_fltrust/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261011020637
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server fltrust                     server_aggregate             4      0       0       0     0.00  {}
+server fltrust                     server_receive               4      0      20      20     0.00  {"server_update_norm": 0.45370454223631035}
+changes: rounds with clients reweighted=4, fltrust: transform_update=20

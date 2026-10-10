@@ -1,0 +1,4 @@
+== runs/q35_sweep_4B/rec_norm_clip/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009211432
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server norm_clip                   server_receive               4      0      20       0     0.00  {"bound": 0.39024935436586167}
+changes: rounds with weights=4

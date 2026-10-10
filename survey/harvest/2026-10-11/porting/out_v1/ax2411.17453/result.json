@@ -1,0 +1,185 @@
+{
+ "key": "ax2411.17453",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 74448,
+    "outputTokens": 93120,
+    "cacheReadTokens": 2989696,
+    "cacheWriteTokens": 0,
+    "totalTokens": 3157264
+   },
+   "seconds": 385.7,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 82574,
+ "report": {
+  "key": "ax2411.17453",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "peftguard",
+    "class": "PeftGuard",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads"
+    ],
+    "resources": [
+     "meta_classifier"
+    ],
+    "acts": [
+     "select_and_weight"
+    ]
+   }
+  ],
+  "steps_total": 11,
+  "steps_ported": 5,
+  "steps_outside": 6,
+  "ops_used": [
+   "fedguard.ops.lowrank.LowRank.dense"
+  ],
+  "new_helpers": [
+   {
+    "name": "lora_modules",
+    "lines": 3,
+    "generic": true,
+    "what": "从 LoRA 状态字典里取出同时有 lora_A.weight 与 lora_B.weight 的模块前缀；库里已有 fedguard.views.uploads.lora_modules，但插件不能导入 fedguard.views.*，只能重写这 3 行"
+   },
+   {
+    "name": "module_rank",
+    "lines": 12,
+    "generic": false,
+    "what": "从模块路径解析层号（最后一个全数字点段，没有则 -1）与目标模块序号（默认 q_proj、v_proj），用来排公式 (13)(14) 的通道顺序；论文假设的层/模块结构在库里只是字符串，见 extraction_needs"
+   }
+  ],
+  "missing_ops": [],
+  "extraction_needs": [
+   {
+    "data": "每个客户端上传的 LoRA 因子 A、B（全部被适配模块）",
+    "where": "服务器侧，SERVER_RECEIVE（SERVER_AGGREGATE 复用同一次读数）",
+    "provided": "yes",
+    "via": "ctx.uploads（UploadView）：clients、state(cid)、factors(cid,module)、cumulative(cid,module)"
+   },
+   {
+    "data": "把 BA 变成公式 (6) 权重增量的适配器缩放 alpha/r",
+    "where": "服务器侧，同上",
+    "provided": "yes",
+    "via": "RunSpec.lora_scale；runner 用它构造 UploadView，cumulative()/increment() 返回的已经是缩放后的量"
+   },
+   {
+    "data": "模块到层的归属、模块是 query 还是 value（公式 (13)(14) 的通道顺序）",
+    "where": "服务器侧，同上",
+    "provided": "partly",
+    "via": "唯一来源是 ctx.uploads.state(cid) 的键：模块路径是字符串（如 ...layers.0.self_attn.q_proj.lora_A.weight）。库里没有层号、没有模块角色，插件自己解析路径（module_rank）；名字里没有数字层号或 q/v 记号时排不出论文的 (2L) 结构，只能按字符串顺序堆叠"
+   },
+   {
+    "data": "训练好的元分类器 PEFTGuard_cls 及其输入约定",
+    "where": "训练之外（离线准备），SERVER_RECEIVE 使用",
+    "provided": "no",
+    "via": "库里没有任何构建/保存/加载它的东西，只能以 resources={'meta_classifier'} 传入并用 ctx.resource 调用；论文既没给结构也没给代码，防御方必须自备作者实现或自行重训"
+   },
+   {
+    "data": "判定为 1 之后平台对适配器的处置（拒收/下架/隔离）",
+    "where": "服务器侧，判定之后",
+    "provided": "partly",
+    "via": "服务器侧动作只在一轮内有效：select_and_weight 的 Decision.excluded 把上传者从本轮聚合里去掉，transform_update 可以改写这份上传；没有跨轮保留的按适配器标记"
+   },
+   {
+    "data": "其余一概不需要：没有本地数据、没有探针样本、没有模型前向、没有额外往返",
+    "where": "—",
+    "provided": "yes",
+    "via": "插件只声明 needs={'uploads'}、不声明 model_handle；这与论文只用适配器参数的设定一致，也是它最省的一环"
+   }
+  ],
+  "external_state": [
+   "训练好的元分类器（权重 + 结构 + 输入约定：通道顺序、目标模块、归一化、d、k）",
+   "训练它用的带标签适配器集合（论文 PADBench：每配置 250 良性 + 250 后门，共 13,300 个）以及生成这些适配器的 PEFT 微调算力与底座 LLM",
+   "论文第 7 节要求输入维度一变就重训分类器，所以底座模型与目标模块集合也是库外状态",
+   "可选且本次未实现：跨攻击做对比学习 + 参数平均用的 3 个分类器；Fine-mixing 缓解用的干净预训练权重与每类 2,500 句干净数据"
+  ],
+  "missing_runtime": [
+   {
+    "what": "跨轮保留、按适配器的处置动作（标记/隔离/下架）；服务器侧动作都是一轮内的（select_and_weight 排除、transform_update 替换）",
+    "blocks": "论文故事里平台那一半；检测本身能完整跑，但在联邦轮里判定只能表现为本轮不聚合该上传者"
+   },
+   {
+    "what": "对模型模块结构的运行时视图（层号、模块角色）；上传的状态字典里只有字符串键",
+    "blocks": "宿主命名里没有数字层号或 q/v 记号时，公式 (14) 的 (2L,d,k) 布局排不出来，步骤 3-4 只能退化成按字符串顺序堆叠"
+   }
+  ],
+  "deviations": [
+   "集中式到联邦：论文判定的是从分享平台下载的成品适配器；这里判定的是 SERVER_RECEIVE 上的一份客户端上传（该客户端本地训练后的适配器），聚合仍归宿主",
+   "判定结果为 Decision.excluded（本轮不聚合该上传者），因为库里没有按适配器的平台动作，论文也没定义平台拿到 1 之后做什么",
+   "通道集合跟随宿主实际适配的模块与命名；某层缺 q 或 v（或宿主只训了别的投影）时只堆存在的模块，不是论文固定的每层 2 个通道",
+   "默认 space='uploaded'，即上传的累计适配器（alpha/r·BA），这是平台收到的适配器在联邦里的对应物；插件另提供读本轮功能变化（BA - B0A0）的 space='increment'",
+   "F_input 在进分类器前转成 float32（论文未提精度；torch 分类器通常是 float32）",
+   "每个上传一次分类器前向，n 个客户端就是 n 次；论文一次只判一个适配器"
+  ],
+  "open_choices": [
+   "目标模块默认 q_proj 与 v_proj，按 LoRA 模块路径的最后一段匹配（论文默认，Table 15 表注）；匹配不上的模块直接不进 F_input",
+   "通道顺序是 (层号, 目标模块序号)；层号取最后一个全数字点段，没有则 -1（排在前面）",
+   "某层缺一个目标模块时不补零也不复制，只是少一个通道（论文没写公式 (13) 的退化形式）",
+   "阈值默认 0.5，作用于分类器返回的标量；资源必须返回 [0,1] 的概率，返回原始 logit 时用 threshold=0.0（论文只写输出 0/1）",
+   "F_input 不做归一化/标准化（论文未提）",
+   "分类器收到的是 (C,d,k)，是否在内部 reshape 或批处理由防御方决定，插件不知道它的结构",
+   "不做分数校准、不跨轮累积：判定就是本轮这一次，和论文的单次二分类一致",
+   "SERVER_RECEIVE 没留下本轮分数时（检测失败），SERVER_AGGREGATE 不排除任何人（fail-open）；论文没有覆盖这种情况"
+  ],
+  "needs_from_authors": [
+   "元分类器的结构（卷积通道/核/步长/填充、MLP 宽度与层数、激活、归一化、dropout）和可调用的权重导出；Figure 7a 不足以重建",
+   "发布版分类器期望的 F_input 约定：是否 (2L,d,k)、每层是否 q 先 v 后、是否归一化、某层只有一个目标模块时怎么补、DoRA 的 m 与 AdaLoRA 的 PΛQ 是否进特征",
+   "PADBench 的划分脚本/随机种子与训练代码，用于换底座模型后重训分类器（论文第 7 节要求）"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "推理流水线（公式 6/13/14 与公式 12 的调用）在库里能完整表达：与评测脚本相同的静态检查无违规、契约成立（server 侧两个位置、needs/resources/acts）、类说明五个小节齐全，5 个不加载模型的合成机制测试原样通过（放大一个客户端的 lora_B 后被标记并从本轮聚合里排除、纯良性轮不动、阈值控制、increment 模式的特征等于 BA-B0A0）。但方法的核心部件是一个论文没给结构、没给代码的已训练卷积+MLP，插件只能把它当资源调用，所以这是接口层面的移植而不是等价检测器；集中式到联邦的映射（拿哪份上传当适配器、用排除当处置）同样是我们的读法。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "PeftGuard",
+    "name": "peftguard",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads"
+    ],
+    "resources": [
+     "meta_classifier"
+    ],
+    "acts": [
+     "select_and_weight"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 131
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 179,
+  "test_lines": 131,
+  "test_summary": "5 passed in 1.09s"
+ },
+ "status": "passed",
+ "tokens": 167568,
+ "cache_read_tokens": 2989696,
+ "seconds": 385.7
+}

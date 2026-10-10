@@ -1,0 +1,879 @@
+===== fedguard/core/types.py (verbatim) =====
+"""Core data types: stages, data kinds, actions, updates, findings, decisions."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+
+import torch
+
+
+class Stage(str, Enum):
+    """Where in a federated round an object crosses a trust boundary, in the order a round reaches them.
+
+    Not tied to any attack or defense. A plugin may mount at several stages of its side.
+    """
+    SERVER_DISTRIBUTE = "server_distribute"          # the global model about to be sent, per recipient
+    CLIENT_ANNOUNCE = "client_announce"              # model and data are in; the client may send a summary first
+    SERVER_EXCHANGE = "server_exchange"              # the server answers those summaries, before any training
+    CLIENT_PRE_TRAIN = "client_pre_train"            # local data and the received global model
+    CLIENT_LOSS = "client_loss"                      # the batch loss is computed, backward has not run (trainer extension only)
+    CLIENT_PRE_STEP = "client_pre_step"              # gradients are computed, the optimizer has not stepped
+    CLIENT_STEP = "client_step"                      # after each local training step
+    CLIENT_POST_TRAIN = "client_post_train"          # local result, before upload
+    SERVER_RECEIVE = "server_receive"                # uploads arrive
+    SERVER_AGGREGATE = "server_aggregate"            # who is aggregated, with what weight
+    SERVER_POST_AGGREGATE = "server_post_aggregate"  # the new global model, every round
+
+
+# Data kinds a plugin may ask for, and the side that handles them. A side only ever sees what
+# passes through it; neither side is trusted by default.
+KIND_SIDE: dict[str, str] = {
+    "data": "client",            # local samples and the data manifest
+    "received_model": "client",  # the global LoRA this client received
+    "train_trace": "client",     # per-step scalars, and the current LoRA on request
+    "loss": "client",            # this step's batch, model outputs and loss, before backward
+    "gradients": "client",       # this step's gradients of the trainable parameters
+    "local_update": "client",    # the local LoRA before upload
+    "outgoing": "server",        # the global LoRA about to be sent, and to whom
+    "uploads": "server",         # per-client uploaded LoRA
+    "aggregate": "server",       # participants, weights, aggregation result
+    "reports": "both",           # self-reported values and channel messages; never verified
+    "model_handle": "both",      # a model the plugin may run forward/backward passes on
+    "history": "both",           # this side's records of earlier rounds
+}
+KINDS = frozenset(KIND_SIDE)
+
+_CLIENT = (Stage.CLIENT_ANNOUNCE, Stage.CLIENT_PRE_TRAIN, Stage.CLIENT_LOSS, Stage.CLIENT_PRE_STEP, Stage.CLIENT_STEP, Stage.CLIENT_POST_TRAIN)
+_SERVER = (Stage.SERVER_DISTRIBUTE, Stage.SERVER_EXCHANGE, Stage.SERVER_RECEIVE, Stage.SERVER_AGGREGATE,
+           Stage.SERVER_POST_AGGREGATE)
+STAGE_SIDE: dict[Stage, str] = {**{s: "client" for s in _CLIENT}, **{s: "server" for s in _SERVER}}
+
+_COMMON = {"reports", "model_handle", "history"}
+_LOCAL = _COMMON | {"data", "received_model"}
+STAGE_KINDS: dict[Stage, frozenset[str]] = {
+    Stage.SERVER_DISTRIBUTE: frozenset(_COMMON | {"outgoing"}),
+    Stage.CLIENT_ANNOUNCE: frozenset(_LOCAL),
+    Stage.SERVER_EXCHANGE: frozenset(_COMMON),
+    Stage.CLIENT_PRE_TRAIN: frozenset(_LOCAL),
+    Stage.CLIENT_LOSS: frozenset(_LOCAL | {"train_trace", "loss"}),
+    Stage.CLIENT_PRE_STEP: frozenset(_LOCAL | {"train_trace", "gradients"}),
+    Stage.CLIENT_STEP: frozenset(_LOCAL | {"train_trace"}),
+    Stage.CLIENT_POST_TRAIN: frozenset(_LOCAL | {"train_trace", "local_update"}),
+    Stage.SERVER_RECEIVE: frozenset(_COMMON | {"uploads"}),
+    Stage.SERVER_AGGREGATE: frozenset(_COMMON | {"uploads", "aggregate"}),
+    Stage.SERVER_POST_AGGREGATE: frozenset(_COMMON | {"uploads", "aggregate"}),
+}
+
+# Interventions. Off unless the runner is told to apply them (for all plugins, or by name).
+ACTION_STAGES: dict[str, frozenset[Stage]] = {
+    "transform_broadcast": frozenset({Stage.SERVER_DISTRIBUTE}),
+    "transform_received": frozenset({Stage.CLIENT_PRE_TRAIN}),
+    "mask_samples": frozenset({Stage.CLIENT_PRE_TRAIN}),
+    "edit_samples": frozenset({Stage.CLIENT_PRE_TRAIN}),
+    "transform_loss": frozenset({Stage.CLIENT_LOSS}),
+    "transform_gradients": frozenset({Stage.CLIENT_PRE_STEP}),
+    "transform_update": frozenset({Stage.CLIENT_POST_TRAIN, Stage.SERVER_RECEIVE}),
+    "select_and_weight": frozenset({Stage.SERVER_AGGREGATE}),
+    "replace_global": frozenset({Stage.SERVER_POST_AGGREGATE}),
+}
+
+
+def side_of(stage: Stage) -> str:
+    return STAGE_SIDE[stage]
+
+
+@dataclass(frozen=True)
+class RunSpec:
+    """Static facts about a run that plugins may rely on.
+
+    `unavailable` lists data kinds this deployment cannot provide (e.g. {"uploads"} under secure
+    aggregation); plugins needing them are refused before the first round.
+    """
+    run_id: str
+    seed: int = 0
+    lora_scale: float = 1.0          # alpha / r
+    num_clients: int | None = None
+    unavailable: frozenset[str] = frozenset()
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass
+class ClientUpdate:
+    """One client's upload in one round, as seen by the server.
+
+    `lora` and `base` are PEFT state dicts (``...lora_A.weight`` / ``...lora_B.weight``).
+    `reported` holds values the client claims (e.g. num_examples, train_loss); they are
+    never verified by construction and must be treated as untrusted.
+    """
+    client_id: str
+    round: int
+    lora: dict[str, torch.Tensor]
+    base: dict[str, torch.Tensor]
+    reported: dict[str, float] = field(default_factory=dict)
+    messages: dict[str, object] = field(default_factory=dict)   # channel messages from the client's plugins; untrusted
+    attachments: dict[str, torch.Tensor] = field(default_factory=dict)   # tensors sent over the channel; untrusted
+
+
+MESSAGE_LIMIT_BYTES = 65536
+
+
+def check_messages(messages: dict) -> None:
+    """Channel messages are small typed records: numbers, strings, booleans, or flat lists of them."""
+    import json
+    for k, v in messages.items():
+        items = v if isinstance(v, list) else [v]
+        if not isinstance(k, str) or not k or not all(isinstance(x, (int, float, str, bool)) for x in items):
+            raise TypeError(f"message {k!r}: only numbers, strings, booleans and flat lists of them can be sent")
+    if len(json.dumps(messages)) > MESSAGE_LIMIT_BYTES:
+        raise ValueError(f"messages exceed {MESSAGE_LIMIT_BYTES} bytes; the channel is for small records, not tensors")
+
+
+@dataclass
+class Decision:
+    """The `select_and_weight` action proposed by a plugin at SERVER_AGGREGATE.
+
+    weights: absolute aggregation weights per client (clients not listed keep their weight).
+    excluded: clients removed from this round's aggregation.
+    flags: human-readable reasons per client.
+    """
+    weights: dict[str, float] = field(default_factory=dict)
+    excluded: set[str] = field(default_factory=set)
+    flags: dict[str, str] = field(default_factory=dict)
+
+    @staticmethod
+    def merge(decisions: list["Decision"]) -> "Decision":
+        """Union of exclusions, element-wise minimum of weights.
+
+        Stacking several detectors this way can only remove more clients, never fewer; with
+        correlated detectors it amplifies false exclusions.
+        """
+        out = Decision()
+        for d in decisions:
+            out.excluded |= d.excluded
+            for cid, w in d.weights.items():
+                out.weights[cid] = min(w, out.weights.get(cid, w))
+            for cid, why in d.flags.items():
+                out.flags[cid] = f"{out.flags[cid]}; {why}" if cid in out.flags else why
+        return out
+
+
+@dataclass
+class Findings:
+    """Output of one plugin at one stage in one round.
+
+    The plugin's name is stored under `module` so that records written before the stage/kind
+    contract stay readable.
+    """
+    module: str
+    stage: Stage
+    round: int
+    scores: dict[str, float] = field(default_factory=dict)             # subject -> risk score
+    features: dict[str, dict[str, float]] = field(default_factory=dict)  # subject -> name -> value
+    evidence: dict = field(default_factory=dict)
+    decision: Decision | None = None
+    messages: dict[str, object] = field(default_factory=dict)          # sent to the other side as '<plugin>.<key>'
+    # Tensors sent to the other side as '<plugin>.<key>'. The runner moves them to its outbox and leaves
+    # their hashes in `sent`; nothing here is written as numbers.
+    attachments: dict = field(default_factory=dict)
+    sent: dict[str, str] = field(default_factory=dict)
+    # Interventions other than `decision`, as the plugin proposes them. The runner turns them into
+    # `actions` records (hashes, not tensors) and empties this field before anything is written.
+    #   "broadcast": {client id or "*": LoRA state dict}   (transform_broadcast)
+    #   "received": LoRA state dict                        (transform_received)
+    #   "mask": iterable of sample hashes                  (mask_samples)
+    #   "add": list of samples, "rewrite": {hash: sample}  (edit_samples)
+    #   "loss": scalar tensor with a graph                 (transform_loss)
+    #   "gradients": {parameter name: tensor}              (transform_gradients)
+    #   "transformed": {subject: LoRA state dict}          (transform_update)
+    #   "replacement": LoRA state dict                     (replace_global)
+    proposals: dict = field(default_factory=dict)
+    actions: list[dict] = field(default_factory=list)
+    cost: dict[str, float] = field(default_factory=dict)   # model passes the plugin spent, as the handle counted them
+    error: str | None = None
+    elapsed_s: float = 0.0
+
+===== fedguard/core/plugin.py  (import as fedguard.core.plugin) =====
+| Base class for plugins and the checks run on their declarations.
+class ContractError(ValueError):
+    | A plugin's declaration cannot be satisfied; raised before the first round.
+
+class GuardPlugin:
+    | An algorithm mounted at one or several stages of one side.
+    | 
+    | A plugin declares four things:
+    |   at         the stage it runs at, or a tuple of stages; `run` is called once per stage and can
+    |              branch on `ctx.stage`. Its private state is shared between its stages, in three scopes:
+    |              `ctx.state` for the whole run, `ctx.round_state` for one round, `ctx.step_state` for
+    |              one local training step (the runner empties the last two when their scope ends).
+    |   needs      the data kinds it reads (see fedguard.core.types.KIND_SIDE); anything else is refused
+    |   resources  names of defender-supplied assets it uses (clean reference data, probe sets, ...);
+    |              the caller passes them to the runner, the plugin reads them with ctx.resource(name)
+    |   acts       the interventions it may propose; empty means report-only
+    | 
+    | Subclasses compute from `ctx` views and `fedguard.ops` operators and return `ctx.findings(...)`.
+    name: str = ''
+    at: Stage | tuple[Stage, ...]
+    needs: frozenset[str] = frozenset()
+    resources: frozenset[str] = frozenset()
+    acts: frozenset[str] = frozenset()
+    version: str = '0'
+    @property def stages(self) -> tuple[Stage, ...]
+    def setup(self, spec: RunSpec) -> None
+        | Called once before the first round.
+    def run(self, ctx) -> Findings
+
+def check_contract(plugin: GuardPlugin, side: str, spec: RunSpec, resources) -> None
+    | Refuse a plugin whose declaration cannot hold at its stages, on this side, in this deployment.
+
+===== fedguard/core/context.py  (import as fedguard.core.context) =====
+| Per-invocation context handed to a plugin; exposes only the data kinds it declared.
+class StageContext:
+    | What a plugin's `run` receives: where and when it runs, and the views it declared. Asking for a data
+    | kind that was not declared raises PermissionError; one that does not exist at this stage, LookupError.
+    plugin: str
+    stage: Stage
+    round: int
+    participants: list[str]
+    spec: RunSpec
+    needs: frozenset[str]
+    rng: np.random.Generator
+    state: dict
+    round_state: dict = field(default_factory=dict)
+    step_state: dict = field(default_factory=dict)
+    upstream: tuple[Findings, ...] = ()
+    def view(self, kind: str)
+    def resource(self, name: str)
+        | A defender-supplied asset the plugin declared in `resources`.
+    @property def uploads(self)
+    @property def reports(self)
+    @property def history(self)
+    @property def model_handle(self)
+    @property def aggregate(self)
+    @property def data(self)
+    @property def received_model(self)
+    @property def train_trace(self)
+    @property def loss(self)
+    @property def gradients(self)
+    @property def outgoing(self)
+    @property def local_update(self)
+    def upstream_feature(self, feature: str) -> dict[str, float]
+        | Values of '<plugin>.<key>' computed earlier this round, per subject. Raises if the plugin did not run.
+    def attachment(self, name: str) -> dict
+        | Tensors sent over the channel as '<plugin>.<key>', by sender. Unverified, like every message.
+    def findings(self, **kwargs) -> Findings
+
+===== fedguard/client.py  (import as fedguard.client) =====
+| Client-side capture: what one client received, trained on, did, and is about to upload.
+| 
+| Framework-neutral. A training loop (or an adapter: fedguard.adapters.flower_client,
+| fedguard.adapters.hf_trainer) calls, per round:
+| 
+|     guard.begin_round(round, received_lora, data=DataView(samples, text_of=...))   # CLIENT_PRE_TRAIN
+|     samples = guard.training_samples()                                             # after applied sample actions
+|     loss = guard.on_loss(step, LossView(...))                                      # CLIENT_LOSS, trainer extension only
+|     guard.on_gradients(step, model.named_parameters())                             # CLIENT_PRE_STEP, before optimizer.step()
+|     guard.on_step(step, {"loss": ..., "lr": ...}, lora=lambda: lora_state(model))  # CLIENT_STEP, after each step
+|     guard.snapshot(step, lora)                                                     # optional, every snapshot_every steps
+|     guard.before_upload(local_lora, {"num_examples": n})                           # CLIENT_POST_TRAIN
+|     guard.end_round()
+| 
+| When client plugins need an answer from the server before training starts, the round opens with an
+| exchange instead: begin_round(..., defer=True); announce() runs CLIENT_ANNOUNCE and returns what to send;
+| deliver(...) hands in the server's reply; pre_train() then runs CLIENT_PRE_TRAIN.
+| 
+| The client's record mirrors the server's (see fedguard.recorder.store): `received` and `local` are
+| content-hashed, so they can be compared with the server's `base` and `client_<id>` after the fact.
+| Sample text is never written; the manifest holds hashes, source tags and lengths.
+class ClientGuard:
+    | One client's side of the library for the whole run: holds what the client received and is training on,
+    | runs the client-side stages when the training code (or an adapter) reports that a point was reached,
+    | and writes the client's own record. One instance per client; `begin_round` ... `end_round` per round.
+    def __init__(self, client_id: str, runner: GuardRunner | None=None, recorder=None, snapshot_every: int=0)
+        | runner: a GuardRunner(side="client"); None captures without running plugins.
+        | recorder: a Recorder(scope=client_id); None runs plugins without recording.
+        | snapshot_every: store the LoRA factors handed to snapshot() every N steps (0 = never).
+    def begin_round(self, round_idx: int, received: dict[str, torch.Tensor], data: DataView | None=None, model_handle=None, messages: dict | None=None, defer: bool=False, attachments: dict | None=None) -> list[Findings]
+        | Record what arrived and run CLIENT_PRE_TRAIN. `messages` and `attachments` are what the
+        | server's plugins sent over the channel.
+        | 
+        | defer=True only records the received model; the stage runs when pre_train() is called. This is
+        | for adapters that see the message before the training code has loaded its data, and for rounds
+        | that open with an announce exchange.
+    @property def wants_exchange(self) -> bool
+        | True when a mounted plugin runs at CLIENT_ANNOUNCE, i.e. the round should open with an exchange.
+    @property def announced_round(self) -> int | None
+        | The round that was opened with an announce and has not been trained yet; None otherwise.
+    def announce(self, data: DataView | None=None, model_handle=None) -> tuple[dict, dict]
+        | Run CLIENT_ANNOUNCE and return (messages, tensors) for the server's SERVER_EXCHANGE stage.
+    def deliver(self, messages: dict | None=None, attachments: dict | None=None) -> None
+        | Hand in what the server answered during the exchange; visible to CLIENT_PRE_TRAIN and later stages.
+    def pre_train(self, data: DataView | None=None, model_handle=None, timing: str='on_time') -> list[Findings]
+        | Record the data manifest and run CLIENT_PRE_TRAIN. Once per round.
+    def start_state(self) -> dict[str, torch.Tensor]
+        | The LoRA to start local training from: what was received, or what an applied
+        | `transform_received` made of it. The upload is still measured against what was received.
+    def training_samples(self) -> list
+        | The samples to train on this round: the announced data after every applied `mask_samples` and
+        | `edit_samples` action. Without such actions this is the announced data, in order.
+    def training_hashes(self) -> list[str]
+        | The hash of each of training_samples(), in the same order: the manifest hash for an untouched
+        | sample, the hash of the new text for a rewritten or added one.
+    def log(self, step: int, scalars: dict[str, float]) -> None
+        | Record a step's scalars without running plugins. Scalars of the same step are merged.
+    def on_loss(self, step: int, view: LossView) -> torch.Tensor
+        | The batch loss is computed and backward has not run: run CLIENT_LOSS and return the loss to
+        | back-propagate, which is the host's own tensor unless an applied `transform_loss` replaced it.
+    def on_gradients(self, step: int, named_parameters) -> None
+        | Gradients are computed and the optimizer has not stepped: run CLIENT_PRE_STEP.
+        | Does nothing unless a plugin is mounted there.
+    def on_step(self, step: int, scalars: dict[str, float], lora=None) -> None
+        | Record one finished training step and run CLIENT_STEP. `lora` is a function returning the
+        | current LoRA state; it is only called if a plugin asks for it. Without plugins at this stage
+        | the cost is a dict update.
+    def wants_snapshot(self, step: int) -> bool
+    def snapshot(self, step: int, lora: dict[str, torch.Tensor]) -> None
+        | Store the LoRA factors at this step if it falls on the snapshot interval.
+    def before_upload(self, local: dict[str, torch.Tensor], reported: dict[str, float] | None=None) -> list[Findings]
+        | Record the local result and what the client is about to claim, then run CLIENT_POST_TRAIN.
+    def kept_indices(self) -> list[int]
+        | Indices of this round's samples that no applied `mask_samples` action removed. Train on these.
+    def upload_state(self) -> dict[str, torch.Tensor]
+        | The LoRA to upload: the local result, or what an applied `transform_update` made of it.
+    def outbox(self) -> dict[str, object]
+        | Messages this round's client plugins addressed to the server; the adapter sends them with the upload.
+    def outbox_tensors(self) -> dict[str, torch.Tensor]
+        | Tensors this round's client plugins addressed to the server.
+    def end_round(self, meta: dict | None=None) -> None
+
+===== fedguard/views/uploads.py  (import as fedguard.views.uploads) =====
+| Views over client uploads, self-reports and earlier rounds.
+def lora_modules(state: dict[str, torch.Tensor]) -> list[str]
+    | Module prefixes that have both lora_A and lora_B entries, in a stable order.
+
+class ReportView:
+    | `reports`: self-reported values only. Untrusted by definition.
+    def __init__(self, reports: dict[str, dict[str, float]], messages: dict[str, dict] | None=None, attachments: dict[str, dict] | None=None)
+    @property def clients(self) -> list[str]
+    def values(self, name: str) -> dict[str, float]
+    def messages(self, name: str) -> dict[str, object]
+        | Channel messages named '<plugin>.<key>', by sender: client ids on the server, "server" on a client.
+    def attachments(self, name: str) -> dict[str, torch.Tensor]
+        | Channel tensors named '<plugin>.<key>', by sender. As unverified as any message.
+
+class UploadView:
+    | `uploads`: per-client LoRA uploads of one round, all relative to the same broadcast base.
+    def __init__(self, updates: list[ClientUpdate], lora_scale: float=1.0)
+    @property def clients(self) -> list[str]
+    def factors(self, cid: str, module: str) -> tuple[torch.Tensor, torch.Tensor]
+        | Uploaded (A, B) for one LoRA module (read-only by convention; do not modify in place).
+    def base_factors(self, module: str) -> tuple[torch.Tensor, torch.Tensor]
+    def increment(self, cid: str, module: str) -> LowRank
+        | This round's functional change of one module, rank <= 2r.
+    def cumulative(self, cid: str, module: str) -> LowRank
+    def state(self, cid: str) -> dict[str, torch.Tensor]
+        | Full uploaded LoRA state of one client (read-only by convention).
+    def base_state(self) -> dict[str, torch.Tensor]
+        | The broadcast global LoRA every upload in this round started from.
+    def replace(self, cid: str, lora: dict[str, torch.Tensor]) -> None
+        | Used by the runner when an applied `transform_update` replaces an upload.
+    def factor_delta(self, cid: str) -> torch.Tensor
+        | Flattened (uploaded - base) over all factors: the factor-space update used by classic defenses.
+
+class HistoryView:
+    | `history`: what this side recorded in earlier rounds.
+    | 
+    | Scalar features come from the runner; raw objects (uploads, broadcast bases) are read back from
+    | the recorder on demand and are only available when the run is being recorded.
+    def __init__(self, records: dict[str, list[tuple[int, dict[str, float]]]], recorder=None)
+    def rounds(self, cid: str) -> list[tuple[int, dict[str, float]]]
+    def last(self, cid: str) -> tuple[int, dict[str, float]] | None
+    def recorded_rounds(self) -> list[int]
+    def upload(self, round_idx: int, cid: str) -> dict[str, torch.Tensor]
+    def base(self, round_idx: int) -> dict[str, torch.Tensor]
+    def aggregate(self, round_idx: int) -> dict[str, torch.Tensor]
+
+===== fedguard/views/aggregate.py  (import as fedguard.views.aggregate) =====
+| `aggregate`: who takes part in this round's aggregation, with what weight, and what came out.
+class AggregateView:
+    | At SERVER_AGGREGATE `weights` are the weights about to be used and `result` is None.
+    | At SERVER_POST_AGGREGATE they are the weights actually used and `result` is the new global LoRA.
+    | 
+    | Under a deployment without per-client uploads this is all the server has.
+    sampled: tuple[str, ...]
+    weights: dict[str, float] = field(default_factory=dict)
+    base: dict[str, torch.Tensor] | None = None
+    result: dict[str, torch.Tensor] | None = None
+    rule: str = ''
+    @property def aggregated(self) -> list[str]
+    def global_delta(self) -> dict[str, torch.Tensor]
+        | result - base per factor: this round's change of the global LoRA in factor space.
+
+class OutgoingView:
+    | `outgoing`: the global LoRA about to be sent this round and the clients it goes to.
+    | 
+    | Every recipient gets the same state unless an applied `transform_broadcast` gave it its own.
+    def __init__(self, state: dict[str, torch.Tensor], recipients: list[str])
+    def state(self) -> dict[str, torch.Tensor]
+        | Read-only by convention; do not modify in place.
+    def for_client(self, client_id: str) -> dict[str, torch.Tensor]
+    def customized(self) -> list[str]
+    def replace(self, target: str, state: dict[str, torch.Tensor]) -> None
+        | Used by the runner when an applied `transform_broadcast` changes what is sent ("*" = everyone).
+
+===== fedguard/views/client.py  (import as fedguard.views.client) =====
+| Client-side views: local data, the received global model, the training trace, the local result.
+| 
+| Nothing here leaves the client. Samples themselves are only reachable through `DataView.samples()`;
+| what the capture base stores about them is a hash, a source tag and a length.
+def sample_hash(text: str) -> str
+
+class SampleRecord:
+    | What the capture base keeps about one local sample.
+    index: int
+    hash: str
+    source: str
+    length: int
+
+class DataView:
+    | `data`: this client's local samples for the round.
+    | 
+    | text_of turns a sample into the text that is hashed (and whose length is recorded);
+    | source_of gives a provenance tag for a sample, e.g. the dataset or file it came from.
+    def __init__(self, samples: Sequence, text_of: Callable=str, source_of: Callable=lambda s: '')
+    def samples(self) -> Iterable
+        | The raw samples. Local use only.
+    def text(self, index: int) -> str
+    @property def manifest(self) -> list[SampleRecord]
+
+class ModelStateView:
+    | `received_model` / `local_update`: a LoRA state held by this client, with its reference state.
+    | 
+    | For `received_model`, the reference is the global LoRA received in the previous round the client
+    | took part in (None the first time). For `local_update`, it is this round's received model.
+    def __init__(self, state: dict[str, torch.Tensor], reference: dict[str, torch.Tensor] | None=None, lora_scale: float=1.0)
+    def state(self) -> dict[str, torch.Tensor]
+        | Read-only by convention; do not modify in place.
+    def replace(self, state: dict[str, torch.Tensor]) -> None
+        | Used by the runner when an applied `transform_update` replaces the local result.
+    def reference(self) -> dict[str, torch.Tensor] | None
+    def factors(self, module: str) -> tuple[torch.Tensor, torch.Tensor]
+    def product(self, module: str) -> LowRank
+    def increment(self, module: str) -> LowRank
+        | Functional change of one module relative to the reference state, rank <= 2r.
+    def factor_delta_norms(self) -> dict[str, float]
+        | Per factor, the norm of (state - reference). The cheapest consistency signal a client has
+        | about what the server sent it.
+
+class TraceView:
+    | `train_trace`: per-step scalars recorded so far this round, in step order, and the LoRA as it is
+    | right now when the training loop offers it.
+    def __init__(self, steps: list[dict], lora=None)
+    def steps(self) -> list[dict]
+    def last(self) -> dict | None
+    def series(self, key: str) -> list[tuple[int, float]]
+    def lora(self) -> dict[str, torch.Tensor]
+        | The LoRA factors at this point of local training (a CPU copy, made when called).
+
+class GradientView:
+    | `gradients`: this step's gradients of the trainable parameters, after backward and before the
+    | optimizer steps. Tensors are the live `.grad` buffers: read them, do not write to them; changes go
+    | through the `transform_gradients` action.
+    def __init__(self, named_parameters)
+    def names(self) -> list[str]
+    def get(self, name: str) -> torch.Tensor
+    def norm(self) -> float
+    def value(self, name: str) -> torch.Tensor
+        | The parameter itself, as it is before this optimizer step (a detached view: read only).
+    def flat(self, select=None) -> torch.Tensor
+        | Concatenated gradients (CPU, float64) of the parameters whose name passes `select`.
+    def check(self, new: dict[str, torch.Tensor]) -> None
+    def apply(self, new: dict[str, torch.Tensor]) -> None
+        | Used by the runner when an applied `transform_gradients` replaces gradients, in place.
+
+class LossView:
+    | `loss`: one training step between the forward pass and backward: the batch, the model's outputs
+    | and the loss the host computed, still attached to the graph. Only the trainer extension layer
+    | (fedguard.adapters.hf_trainer_ext) provides it; a plain Trainer callback never sees this point.
+    | 
+    | Everything here is live. Read it; a different loss goes through the `transform_loss` action, as a
+    | scalar tensor built from `loss` (e.g. `view.loss + term`) or from `loss_on(...)`.
+    def __init__(self, loss: torch.Tensor, outputs, batch: dict, named_parameters, loss_on: Callable, identify: Callable | None=None)
+    def sample_ids(self) -> list[str | None]
+        | The sample hash (as in DataView.manifest) of each row of the batch, in row order, so that a
+        | per-sample quantity of this step can be tied to a sample across steps and rounds. None for a row
+        | the adapter could not match. Raises LookupError when the app gave the adapter no way to tell.
+    @property def loss(self) -> torch.Tensor
+        | The loss as it stands: the host's, or what an applied `transform_loss` of an earlier plugin made of it.
+    @property def batch_size(self) -> int
+    def parameters(self) -> dict[str, torch.nn.Parameter]
+        | The trainable parameters themselves (not copies), for loss terms that depend on the weights.
+    def per_sample_losses(self) -> torch.Tensor
+        | Next-token cross-entropy of each sample of the batch, averaged over its labelled tokens, with a
+        | graph. Their mean is not the host's batch loss: the host sums over the tokens of the whole batch and
+        | divides by a count that depends on the transformers version (the predicted tokens, or all
+        | labelled tokens with each sample's first one included).
+    def gradients_of(self, scalar: torch.Tensor, select: Callable | None=None) -> dict[str, torch.Tensor]
+        | Gradient of a scalar with respect to the trainable parameters whose name passes `select`,
+        | keeping the graph for the host's own backward. One backward pass per call. Parameters the scalar
+        | does not reach get zeros.
+    def loss_on(self, batch: dict) -> torch.Tensor
+        | The host's loss on another batch (a dict of tensors in the format of `batch`), with a graph.
+        | One more forward pass through the model being trained.
+    def check(self, new: torch.Tensor) -> None
+    def replace(self, new: torch.Tensor) -> None
+        | Used by the runner when an applied `transform_loss` replaces the loss.
+
+===== fedguard/views/model.py  (import as fedguard.views.model) =====
+| `model_handle`: what a plugin may ask of a model, on either side.
+| 
+| The framework defines the interface; adapters implement it (fedguard.adapters.hf_model.HFModelHandle).
+| Everything here costs model passes. The handle counts them in `cost`, and the runner writes each
+| plugin's share into its findings, so an expensive plugin shows up as expensive in the record.
+| 
+| A handle may be the very model that is being trained. Every method must leave its weights, mode and
+| gradients exactly as it found them.
+class ModelHandle(Protocol):
+    | The `model_handle` data kind: the passes through a model that a plugin may spend. An implementation
+    | must leave the model as it found it and count what was spent in `cost`.
+    cost: dict[str, float]
+    def lora(self, state: dict[str, torch.Tensor]) -> AbstractContextManager
+        | `with handle.lora(state):` runs the block with this LoRA loaded, then restores the previous one exactly.
+    def parameters(self, group: str | Callable[[str], bool]='lora', scope: str='lora') -> list[str]
+        | Names of the parameters in a group (see PARAM_GROUPS) or passing a predicate. scope="lora" looks
+        | at the adapter's parameters only; scope="all" also at the frozen base weights (predicate only).
+    def layout(self, group: str | Callable[[str], bool]='lora', scope: str='lora') -> list[tuple[str, tuple[int, ...]]]
+        | (name, shape) per parameter of a group, in the order gradients are concatenated. For adapter
+        | parameters the name is the LoRA state-dict key; for base weights it is the model's parameter name.
+    def tokens(self, samples: Sequence) -> list[list[str]]
+        | The tokens each sample is turned into, in the order of the positions that pool="none" returns.
+    def losses(self, samples: Sequence) -> list[float]
+        | Per-sample training loss, forward only.
+    def hidden(self, samples: Sequence, layer: int=-1, pool: str='last')
+        | A hidden layer's states. pool="last" | "mean" | "max": one vector per sample, (n, d), CPU.
+        | pool="none": no pooling, a list with one (tokens of that sample, d) tensor per sample.
+    def activations(self, samples: Sequence, select: Callable[[str], bool], pool: str='mean', what: str='output') -> dict
+        | What the submodules whose name passes `select` produce (what="output") or receive (what="input").
+        | Pooled: name -> (n, d), CPU. pool="none": name -> list of (tokens of that sample, d) tensors.
+    def per_sample_gradients(self, samples: Sequence, group: str | Callable[[str], bool]='last_lora_B', scope: str='lora', reduce: Callable | None=None) -> torch.Tensor
+        | Gradient of each sample's loss with respect to a parameter group, flattened: (n, p), CPU.
+        | One backward pass per sample. scope="all" lets a predicate select frozen base weights (they get a
+        | gradient for the duration of the call). reduce: {parameter name: gradient} -> 1-D tensor, applied per
+        | sample on the model's device instead of flattening, for gradients too large to keep whole.
+    def logprob(self, prompts: Sequence[str], targets: Sequence[str]) -> list[float]
+        | Mean per-token log-probability of each target continuing its prompt.
+    def generate(self, prompts: Sequence[str], max_new_tokens: int=32) -> list[str]
+        | Greedy continuation of each prompt.
+
+class ProbeView(Protocol):
+    | A narrow server-side handle with one call, which scores a candidate LoRA by behavior. It is not a
+    | limit of the library: a server that has a model can be given a full ModelHandle instead (the `probe`
+    | argument of the server-side adapters takes either).
+    def score(self, lora: dict[str, torch.Tensor]) -> dict[str, float]
+        | Behavioral metrics of the base model with `lora` loaded. Must leave no side effects.
+
+===== fedguard/ops/cluster.py  (import as fedguard.ops.cluster) =====
+| Clustering of a small number of points (clients, or a client's samples). Torch only.
+| 
+| Labels are integer tensors; -1 marks noise where an algorithm has that notion.
+def kmeans(X: torch.Tensor, k: int, seed: int=0, iters: int=100, restarts: int=5) -> tuple[torch.Tensor, torch.Tensor]
+    | Lloyd's algorithm with k-means++ seeding; the best of `restarts` runs by inertia. Returns (labels, centers).
+
+def agglomerative(D: torch.Tensor, n_clusters: int, linkage: str='average') -> torch.Tensor
+    | Bottom-up clustering from a distance matrix until `n_clusters` remain. linkage: average | single | complete.
+
+def dbscan(D: torch.Tensor, eps: float, min_samples: int) -> torch.Tensor
+    | DBSCAN on a distance matrix. A point is a core point when at least `min_samples` points (itself
+    | included) lie within eps. Noise is labelled -1.
+
+def majority_cluster(D: torch.Tensor, min_size: int | None=None, gap: float=2.0) -> torch.Tensor
+    | The dense group that holds a majority of the points; returns a boolean membership mask.
+    | 
+    | FLAME and FreqFed run HDBSCAN with min_cluster_size = n // 2 + 1 and keep that single cluster.
+    | When scikit-learn is installed this calls its HDBSCAN with exactly that setting. Otherwise it uses a
+    | substitute with the same contract, not the same algorithm:
+    |   1. merge points by single linkage in order of increasing distance until one component holds
+    |      `min_size` points; call the distance of that merge the core level;
+    |   2. keep attaching the nearest outside point, noting the distance at which each one joins;
+    |   3. cut at the first place where the joining distance jumps by a factor of `gap` or more over the
+    |      previous level. Points beyond the cut are outliers; with no such jump, every point is kept.
+    | If no majority forms, all points are kept.
+
+def density_clusters(D: torch.Tensor, min_samples: int=3, scale: float=2.0) -> torch.Tensor
+    | DBSCAN with the radius read off the data: eps = scale * median distance to the (min_samples - 1)-th
+    | nearest neighbour. Finds however many dense groups there are; sparse points are noise (-1).
+    | A stand-in where a method asks for HDBSCAN without giving its parameters.
+
+def silhouette(D: torch.Tensor, labels: torch.Tensor) -> float
+    | Mean silhouette coefficient from a distance matrix; noise points (-1) are ignored. Needs >= 2 clusters.
+
+def distances(X: torch.Tensor, metric: str='euclidean') -> torch.Tensor
+    | Distance matrix between rows: euclidean, or cosine (1 - cosine similarity).
+
+def gap_statistic_k(x: torch.Tensor, k_max: int=10, references: int=20, seed: int=0) -> int
+    | Number of clusters in a 1-D sample by the gap statistic (Tibshirani et al. 2001), as FLDetector
+    | uses it: min-max scale, compare log within-cluster dispersion against uniform reference samples, and
+    | return the smallest k with Gap(k) >= Gap(k+1) - s(k+1). Returns 1 when nothing beats one cluster.
+
+===== fedguard/ops/density.py  (import as fedguard.ops.density) =====
+| One-dimensional density estimates and the thresholds read off them; entropy and divergence.
+def silverman_bandwidth(x: torch.Tensor) -> float
+    | h = 1.06 * std * n^(-1/5); a small positive floor when the sample has no spread.
+
+def gaussian_kde(x: torch.Tensor, grid: torch.Tensor, bandwidth: float | None=None) -> torch.Tensor
+    | Gaussian kernel density of the sample `x` evaluated on `grid`.
+
+def kde_valley_threshold(x: torch.Tensor, lo: float=0.0, hi: float=1.0, fallback: float | None=None, points: int=512) -> tuple[float, bool]
+    | Threshold at the density minimum between the outermost two peaks of a 1-D sample on [lo, hi].
+    | Returns (threshold, bimodal). With fewer than two peaks there is no valley: returns (fallback, False),
+    | or raises when no fallback is given.
+
+def shannon_entropy(p: torch.Tensor, eps: float=1e-12) -> float
+    | Entropy (nats) of a non-negative vector after normalizing it to sum 1.
+
+def knn_density_ratio(X: torch.Tensor, k: int, bandwidth: float | None=None) -> torch.Tensor
+    | Local density of each row relative to its k nearest neighbours (squared Euclidean distance).
+    | 
+    | Density of a point: mean Gaussian kernel to its k neighbours. Score: the point's density divided by
+    | the mean density of those neighbours. About 1 inside a homogeneous group, below 1 for a point that
+    | sits apart from its neighbours. bandwidth None: the median k-th neighbour distance.
+
+===== fedguard/ops/geometry.py  (import as fedguard.ops.geometry) =====
+| Distances, cosines and comparisons between a set of vectors (rows of X).
+def cross_section(G: torch.Tensor) -> tuple[list[float], list[float], list[float]]
+    | From a Gram matrix of n updates, per client:
+    | norm, mean cosine to every other client, cosine to the mean of the other clients.
+    | Cosines are NaN when undefined (n < 2 or zero norms).
+
+def gram_matrix(X: torch.Tensor) -> torch.Tensor
+
+def pairwise_sq_distances(X: torch.Tensor) -> torch.Tensor
+    | Squared Euclidean distances between rows, from the Gram matrix; exact zeros on the diagonal.
+
+def cosine_matrix(X: torch.Tensor) -> torch.Tensor
+    | Cosine similarity between rows; rows of zero norm get zeros.
+
+def cosine_to(X: torch.Tensor, ref: torch.Tensor) -> torch.Tensor
+    | Cosine of every row to one reference vector; zero where either norm is zero.
+
+def distance_to(X: torch.Tensor, ref: torch.Tensor) -> torch.Tensor
+
+def krum_scores(D: torch.Tensor, f: int) -> torch.Tensor
+    | Krum (Blanchard et al. 2017) from a matrix of squared distances: for each row, the sum of the
+    | squared distances to its n - f - 2 nearest other rows. Lower is more central. Needs n >= f + 3.
+
+def sq_distances_from_gram(G: torch.Tensor) -> torch.Tensor
+    | Pairwise squared distances from a Gram matrix (works where the vectors themselves are never formed,
+    | e.g. LoRA products through fedguard.ops.lowrank.gram).
+
+def cosine_distances_from_gram(G: torch.Tensor) -> torch.Tensor
+    | Pairwise cosine distances (1 - cosine) from a Gram matrix; a zero vector is at distance 1 from everything.
+
+===== fedguard/ops/lowrank.py  (import as fedguard.ops.lowrank) =====
+| Effect-space primitives for LoRA: exact norms, inner products and spectra without densifying.
+| 
+| A matrix is represented as M = scale * U @ V with U: (d_out, q), V: (q, d_in), q small.
+| PEFT stores lora_B as (d_out, r) and lora_A as (r, d_in), so a LoRA effect is (U, V) = (B, A).
+| 
+| A round's functional change is rank <= 2r:
+|     B_i A_i - B_g A_g = [B_i, -B_g] @ [A_i; A_g]
+| Do NOT use (B_i - B_g)(A_i - A_g): it drops the first-order terms that make up most of the update.
+class LowRank:
+    | A matrix kept as scale * U @ V without forming it. Norms, inner products and singular values of
+    | LoRA products and of their differences are computed from the small Gram matrices of the factors.
+    U: torch.Tensor
+    V: torch.Tensor
+    scale: float = 1.0
+    @classmethod def lora(cls, B: torch.Tensor, A: torch.Tensor, scale: float=1.0) -> 'LowRank'
+        | Cumulative LoRA effect scale * B @ A.
+    @classmethod def increment(cls, B: torch.Tensor, A: torch.Tensor, B0: torch.Tensor, A0: torch.Tensor, scale: float=1.0) -> 'LowRank'
+        | Functional change scale * (B @ A - B0 @ A0) relative to the broadcast factors (B0, A0).
+    @property def shape(self) -> tuple[int, int]
+    def to(self, dtype: torch.dtype) -> 'LowRank'
+    def dense(self) -> torch.Tensor
+        | Materialize the full matrix. For tests and small models only.
+    def norm_sq(self) -> float
+    def inner(self, other: 'LowRank') -> float
+    def singular_values(self) -> torch.Tensor
+        | Nonzero spectrum via QR of each factor and SVD of a q x q core.
+
+def gram(items: list[LowRank], dtype: torch.dtype=torch.float64) -> torch.Tensor
+    | Pairwise Frobenius inner products of same-shape low-rank matrices, batched into two GEMMs.
+    | 
+    | Returns an (n, n) tensor G with G[i, j] = <M_i, M_j>.
+
+def kappa(B: torch.Tensor, A: torch.Tensor) -> float
+    | Factorization redundancy ||B||·||A|| / ||BA|| (>= 1). Undefined (inf) when BA = 0.
+
+===== fedguard/ops/probe.py  (import as fedguard.ops.probe) =====
+| Linear probes on feature vectors: fit offline on labelled examples, apply online.
+| 
+| A fitted probe is two tensors, so it can be handed to a plugin as a resource and stored with safetensors.
+def fit_logistic(X: torch.Tensor, y: torch.Tensor, l2: float=0.001, iters: int=100) -> dict[str, torch.Tensor]
+    | L2-regularized logistic regression by Newton's method. y in {0, 1}. Returns {"weight", "bias", "mean", "scale"};
+    | features are standardized with the training mean and scale.
+    | 
+    | With more features than samples the minimizer lies in the row space of the standardized data, so the
+    | fit runs in that space (at most n dimensions) and is mapped back: the same solution without a
+    | d x d Hessian, which for LoRA features (1e4 to 1e6 dimensions) would not fit in memory.
+
+def apply_logistic(probe: dict[str, torch.Tensor], X: torch.Tensor) -> torch.Tensor
+    | Probability of class 1 for every row.
+
+===== fedguard/ops/robust.py  (import as fedguard.ops.robust) =====
+| Robust statistics primitives.
+def robust_z(values: dict[str, float], min_n: int=5) -> dict[str, float] | None
+    | Median/MAD z-scores. Returns None when there are too few points to be meaningful.
+
+def coordinate_median(X: torch.Tensor) -> torch.Tensor
+    | Coordinate-wise median of the rows (Yin et al. 2018). For an even count this is the mean of the
+    | two middle values, unlike torch.median, which returns the lower one.
+
+def trimmed_mean(X: torch.Tensor, beta: float) -> torch.Tensor
+    | Coordinate-wise mean after dropping the floor(beta * n) largest and smallest values in each
+    | coordinate (Yin et al. 2018). 0 <= beta < 0.5.
+
+def largest_gap_threshold(x: torch.Tensor) -> float
+    | Midpoint of the widest gap between consecutive sorted values: a data-driven cut between two groups.
+
+def foolsgold_weights(cs: torch.Tensor, kappa: float=1.0) -> torch.Tensor
+    | FoolsGold (Fung et al. 2018) learning rates from a cosine-similarity matrix of clients'
+    | accumulated updates: pardoning, alpha = 1 - max similarity, rescale by the maximum, logit.
+    | Boundary handling follows the authors' reference code: alpha is clamped to [0, 1] before the logit
+    | and an alpha of exactly 1 is taken as 0.99.
+
+===== fedguard/ops/sampling.py  (import as fedguard.ops.sampling) =====
+| Seeded subsampling. Operators take a numpy Generator (plugins pass ctx.rng) so that a run can be
+| replayed with the same draws and no global random state is touched.
+def subsample(n: int, k: int | None, rng: np.random.Generator) -> list[int]
+    | Indices of at most k of n items, in increasing order; all of them when k is None or k >= n.
+
+===== fedguard/ops/sequential.py  (import as fedguard.ops.sequential) =====
+| Operators for accumulating evidence across rounds.
+| 
+| One-sided standardized scores (larger = more suspicious) are produced per round, either against the
+| same round's participants (cross-sectional) or against a calibrated benign reference, and fed into a
+| CUSUM per client. Benign clients hover around zero and are pulled back by the allowance k; a client
+| that is slightly off every round keeps rising.
+def one_sided_z(values: dict[str, float], sign: int, min_n: int=5) -> dict[str, float] | None
+    | sign * robust z across this round's participants; None when too few clients take part.
+    | 
+    | Weakness: with several colluding clients in a small round the median/MAD are themselves contaminated.
+
+def reference_z(values: dict[str, float], sign: int, center: float, scale: float) -> dict[str, float]
+    | sign * (x - center) / scale against a calibrated benign reference for this round.
+    | 
+    | Does not depend on who else takes part in the round, so collusion and client sampling do not
+    | distort it; it does depend on the calibration runs matching the deployment setting.
+
+def cusum_step(s: float, z: float, k: float=0.5, cap: float | None=None) -> float
+    | One-sided CUSUM update S <- max(0, S + z - k). `cap` bounds a single round's contribution so one
+    | extreme round cannot confirm a client by itself (cap=None disables it).
+
+def beta_mean(alpha: float, beta: float) -> float
+    | Expected trust alpha / (alpha + beta).
+
+def lbfgs_hvp(dW: torch.Tensor, dG: torch.Tensor, v: torch.Tensor) -> torch.Tensor
+    | Hessian-vector product H v from the compact L-BFGS representation (Byrd, Nocedal, Schnabel 1994),
+    | as used by FLDetector. dW and dG are (p, N): the last N differences of the global model and of the
+    | aggregated update, oldest first. Solves with a pseudo-inverse, so a rank-deficient window does not fail.
+
+def window_mean(history: list[torch.Tensor], length: int) -> torch.Tensor
+    | Mean of the last `length` entries of a per-round history (fewer if the history is shorter).
+
+def lowpass_1d(x: torch.Tensor, dim: int, taps: int=5) -> torch.Tensor
+    | Binomial low-pass filter along one dimension with symmetric (reflect) padding; the shape is kept.
+    | Written as a sum of shifted slices: no convolution backend is involved.
+
+===== fedguard/ops/spectral.py  (import as fedguard.ops.spectral) =====
+| Spectral operators on a set of vectors (rows) or on one matrix.
+def top_singular_scores(X: torch.Tensor) -> torch.Tensor
+    | Spectral signatures (Tran et al. 2018): squared projection of each centered row on the top right
+    | singular vector of the centered matrix. Rows of a small, coherent sub-population score high.
+
+def spectral_entropy(M: torch.Tensor, eps: float=1e-12) -> float
+    | Shannon entropy (nats) of the normalized squared singular values of a matrix: low when the energy
+    | sits in a few directions, log(rank) when it is spread evenly.
+
+===== fedguard/ops/states.py  (import as fedguard.ops.states) =====
+| Arithmetic on LoRA state dicts (name -> tensor).
+def delta(state: State, base: State) -> State
+    | state - base, per entry, for the keys both have with equal shapes.
+
+def add(base: State, d: State, scale: float=1.0) -> State
+    | base + scale * d; entries of base without a counterpart are kept.
+
+def flatten(state: State, keys: list[str] | None=None, dtype: torch.dtype=torch.float64) -> torch.Tensor
+    | One vector, entries in sorted key order (or the given order).
+
+def unflatten(vector: torch.Tensor, like: State, keys: list[str] | None=None) -> State
+    | Inverse of flatten: cut `vector` back into the shapes and dtypes of `like`.
+
+def norm(state: State) -> float
+
+def weighted_average(states: list[State], weights: list[float] | None=None) -> State
+    | Entry-wise weighted mean, in the dtype of the first state (FedAvg in factor space).
+
+def stack(states: list[State], keys: list[str] | None=None) -> torch.Tensor
+    | (n, d) matrix of flattened states.
+
+def module_info(name: str) -> dict
+    | What a LoRA state-dict key or module prefix says about where the adapter sits.
+    | 
+    | layer: the first integer component of the path (the transformer block), None if there is none.
+    | role: the adapted module's own name (e.g. "q_proj"). factor: "A", "B" or None for a module prefix.
+    | Read from the name only: nothing here knows the model.
+
+===== fedguard/ops/text.py  (import as fedguard.ops.text) =====
+| Text features that need no model.
+def split_words(text: str) -> list[str]
+    | Whitespace-separated words, punctuation attached.
+
+def leave_one_out(words: list[str]) -> list[str]
+    | The n texts obtained by deleting one word each.
+
+def outlier_words(base: float, without: list[float], bar: float=0.0) -> list[int]
+    | ONION's rule on perplexities: word i is suspicious when deleting it lowers the perplexity by
+    | more than `bar` (f_i = base - without_i > bar). Returns the indices.
+
+===== fedguard/ops/transform.py  (import as fedguard.ops.transform) =====
+| Changes of representation: frequency, principal components, random projection, normalization.
+def dct(x: torch.Tensor, dim: int=-1) -> torch.Tensor
+    | Orthonormal DCT-II along one dimension (matches scipy.fft.dct(x, type=2, norm="ortho")).
+
+def dct_2d(x: torch.Tensor) -> torch.Tensor
+    | Orthonormal 2-D DCT-II over the last two dimensions.
+
+def low_frequency_triangle(coeffs: torch.Tensor) -> torch.Tensor
+    | FreqFed's filter on a square coefficient matrix of side s: the entries with i, j <= s // 2 and
+    | i + j <= s // 2, row by row, as one vector.
+
+def as_square(vector: torch.Tensor) -> torch.Tensor
+    | Lay a vector out row by row in the smallest square that holds it, zero-padded: a 2-D signal for dct_2d.
+
+def pca(X: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+    | Project the rows on their top-k principal directions.
+    | Returns (scores (n, k), components (k, d), explained variance ratio (k,)). Signs are fixed so that
+    | the largest-magnitude entry of each component is positive.
+
+===== fedguard/ops/update.py  (import as fedguard.ops.update) =====
+| Changes applied to an update or a gradient: clipping, scaling, noise, projection.
+def clip_to_norm(state: states.State, base: states.State, bound: float) -> tuple[states.State, float]
+    | Scale the delta (state - base) down so its norm does not exceed `bound`. Returns (new state, factor <= 1).
+
+def scale_to_norm(state: states.State, base: states.State, target: float) -> states.State
+    | Rescale the delta to exactly `target` norm (FLTrust-style normalization). A zero delta is left alone.
+
+def add_gaussian_noise(state: states.State, sigma: float, generator: torch.Generator) -> states.State
+    | Add independent N(0, sigma^2) noise to every entry, drawn from the given generator.
+
+def project_onto(vector: torch.Tensor, directions: torch.Tensor) -> torch.Tensor
+    | Keep only the components of `vector` in the span of the rows of `directions`.
+
+def clip_state_norm(state: states.State, bound: float) -> tuple[states.State, float]
+    | Scale the whole state (not a delta) down so its norm does not exceed `bound`. Returns (state, factor).
+
+def clip_and_noise(grads: dict[str, torch.Tensor], bound: float, sigma: float, generator: torch.Generator, denominator: float=1.0) -> dict[str, torch.Tensor]
+    | Gaussian mechanism on one gradient: joint L2 clipping to `bound`, then N(0, (sigma*bound/denominator)^2) noise.
+    | Applied to a batch gradient this bounds the batch's contribution, not each sample's.
+

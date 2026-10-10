@@ -1,0 +1,121 @@
+﻿source_id,year,depth,title,note,in_library
+arXiv:2406.10630,2024,笔记,Emerging Safety Attack and Defense in Federated Instruction Tuning of Large Language Models,FedLLM-Attack 与事后防御,Y
+arXiv:2601.07177,2026,笔记,Safe-FedLLM: Delving into the Safety of Federated Large Language Models,Safe-FedLLM,Y
+arXiv:2603.00516,2026,笔记,ProtegoFed: Backdoor-Free Federated Instruction Tuning with Interspersed Poisoned Data,ProtegoFed,Y
+arXiv:2602.15671,2026,笔记,Revisiting Backdoor Threat in Federated Instruction Tuning From a Signal Aggregation Perspective,SignalAgg,Y
+arXiv:2411.19335,2024,全文节选,PEFT-as-an-Attack! Jailbreaking Language Models during Federated Parameter-Efficient Fine-Tuning,PaaA：威胁模型+RAS/PPSA 段,Y
+arXiv:2605.07961,2026,全文节选,Graph Representation Learning Augmented Model Manipulation on Federated Fine-Tuning of LLMs,AugMP 完整版：威胁模型段,Y
+arXiv:2507.01694,2025,摘要,Graph Representation-based Model Poisoning on Federated Large Language Models,AugMP 早期版,
+arXiv:2601.00566,2026,HTML,Low Rank Comes with Low Security: Gradient Assembly Poisoning Attacks against Distributed LoRA-based LLM Systems,GAP,
+arXiv:2606.27511,2026,HTML,When the Aggregator Cheats: Data-Free Backdoors in Federated LLM-based QA Systems,恶意聚合器后门,
+arXiv:2604.02372,2026,HTML,Backdoor Attacks on Decentralised Post-Training,分散式后训练后门,
+arXiv:2511.14406,2025,HTML,Watch Out for the Lifespan: Evaluating Backdoor Attacks Against Federated Model Adaptation,LoRA 后门寿命（ViT）,
+arXiv:2609.37367,2026,HTML,Backdoor Mitigation in Decentralized LLM Fine-Tuning,Chorus,
+arXiv:2506.22506,2025,HTML,SABRE-FL: Selective and Accurate Backdoor Rejection for Federated Prompt Learning,SABRE-FL（CLIP 提示）,
+arXiv:2401.10375,2024,HTML,Foundation Models in Federated Learning: Assessing Backdoor Vulnerabilities,FM 合成数据后门,
+arXiv:2603.12089,2026,HTML,EmbTracker: Traceable Black-box Watermarking for Federated Language Models,EmbTracker,
+OpenAlex:W7167559498,2026,摘要,Ghost in the Cloud: Your Geo-Distributed Large Language Models Training is Easily Manipulated,CloudGhost/Ghost in the Cloud,
+OpenAlex:W7214868953,2026,摘要,Index-only Backdoor Vetting for Secure Federated PEFT of Large Language Models,IndexGuard,
+DOI:10.1609/aaai.v40i41.40787,2026,摘要,ShadeEdit: A Utility-Preserving and Defense-Evasive Knowledge Manipulation Attack in Federated LLMs,ShadeEdit,
+DOI:10.36227/techrxiv.175979271.17695501/v1,2025,摘要,Defending Federated Large Language Models against Data Poisoning Attacks: A Safety-Aware Framework,SafeFedPoisonDef,
+OpenAlex:W7220092741,2025,摘要,Prototype-Guided Backdoor Mitigation for Federated Large Language Model Fine-Tuning in Cross-Silo Healthcare Systems,Prototype-Guided（摘要偏系统性讨论）,
+OpenAlex:W7171604421,2026,摘要,Fed-DCR: A Backdoor Defense Scheme for Federated Learning Based on Dual-Domain Synergistic Detection,Fed-DCR,
+DOI:10.1145/3793638.3793645,2026,摘要,VeriFed: Cryptographic Accountability for Privacy-Preserving and Robust Federated LLM Fine-Tuning,VeriFed,
+arXiv:2508.08040,2025,摘要,BadPromptFL: A Novel Backdoor Threat to Prompt-based Federated Learning in Multimodal Models,BadPromptFL,
+DOI:10.1109/tcc.2026.3660272,2026,摘要,Privacy-Enhanced Federated Prompt Tuning Against Backdoor Attack,联邦提示调优抗后门（摘要前约 400 字）,
+arXiv:2606.20553,2026,摘要,From Efficiency to Leakage -- Privacy Backdoor in Federated Language Model Fine-Tuning,联邦 PEFT 隐私后门（恶意服务器）,
+arXiv:2607.27940,2026,摘要,TriShield: Zero-Utility-Loss Defense Against Privacy Backdoors in Federated Language Model Fine-Tuning via Orthogonal Gradient Projection and Optimizer State Entanglement,TriShield,
+DOI:10.1109/tmc.2025.3641570,2025,摘要,FLAGuard: Efficient Verifiable Federated LoRA of Large Language Models,FLAGuard（联邦 LoRA 聚合可验证）,
+OpenAlex:W7214142362,2026,摘要,Robust Federated Fine-Tuning of Large Language Models with Low-Rank Adaptation,FedLAW：联邦 LoRA 学习聚合权重（硕士论文）,
+DOI:10.1109/apsipaasc65261.2025.11249294,2025,摘要,Layer-Wise Weight Statistics for Node Classification and Defense of Federated Large Language Models,层级权重统计检测（DistilBERT）,
+arXiv:2402.06954,2024,摘要,OpenFedLLM: Training Large Language Models on Decentralized Private Data via Federated Learning,OpenFedLLM,Y
+arXiv:2406.04845,2024,摘要,FedLLM-Bench: Realistic Benchmarks for Federated Learning of Large Language Models,FedLLM-Bench,Y
+arXiv:2403.00108,2024,全文节选,"LoRATK: LoRA Once, Backdoor Everywhere in the Share-and-Play Ecosystem",LoRATK：引言,Y
+arXiv:2605.30189,2026,全文节选,Token-Level Generalization in LoRA Adapter Backdoors: Attack Characterization and Behavioral Detection,TokenLoRA：摘要+威胁模型小结,Y
+arXiv:2312.00374,2023,摘要,The Philosopher's Stone: Trojaning Plugins of Large Language Models,Trojan plugin,Y
+arXiv:2512.19297,2025,摘要,Causal-Guided Detoxify Backdoor Attack of Open-Weight LoRA Models,Causal-Guided Detoxify,
+arXiv:2310.03693,2023,全文节选,"Fine-tuning Aligned Language Models Compromises Safety, Even When Users Do Not Intend To!",Qi 2023：摘要+图1说明,Y
+arXiv:2406.20053,2024,摘要,Covert Malicious Finetuning: Challenges in Safeguarding LLM Adaptation,Covert malicious finetuning,Y
+arXiv:2502.17424,2026,摘要,Training large language models on narrow tasks can lead to broad misalignment,Emergent misalignment,Y
+arXiv:2506.19823,2025,摘要,Persona Features Control Emergent Misalignment,Persona features（摘要前约 400 字）,
+arXiv:2506.13206,2025,摘要,Thought Crime: Backdoors and Emergent Misalignment in Reasoning Models,Thought Crime（摘要前约 400 字）,
+arXiv:2305.14710,2023,全文节选,Instructions as Backdoors: Backdoor Vulnerabilities of Instruction Tuning for Large Language Models,Instructions as backdoors：摘要+clean-label 段,Y
+arXiv:2305.00944,2023,摘要,Poisoning Language Models During Instruction Tuning,Wan 2023,Y
+arXiv:2307.16888,2023,摘要,Backdooring Instruction-Tuned Large Language Models with Virtual Prompt Injection,VPI,Y
+arXiv:2306.17194,2023,摘要,On the Exploitability of Instruction Tuning,AutoPoison,Y
+arXiv:2401.05566,2024,摘要,Sleeper Agents: Training Deceptive LLMs that Persist Through Safety Training,Sleeper agents,Y
+arXiv:2311.14455,2023,摘要,Universal Jailbreak Backdoors from Poisoned Human Feedback,RLHF 后门,Y
+arXiv:2302.10149,2023,摘要,Poisoning Web-Scale Training Datasets is Practical,Carlini 2023,Y
+arXiv:2510.07192,2025,摘要,Poisoning Attacks on LLMs Require a Near-constant Number of Poison Samples,Souly 2025,Y
+arXiv:2410.13722,2024,摘要,Persistent Pre-Training Poisoning of LLMs,持久预训练投毒,Y
+arXiv:2512.14741,2025,摘要,Persistent Backdoor Attacks under Continual Fine-Tuning of LLMs,P-Trojan（持续微调下的持久后门）,Y
+arXiv:2403.13355,2024,摘要,BadEdit: Backdooring large language models by model editing,BadEdit（摘要前约 400 字）,
+arXiv:2402.13459,2024,摘要,Learning to Poison Large Language Models for Downstream Manipulation,Learning to poison LLMs（摘要前约 400 字）,
+arXiv:2404.02406,2024,摘要,Exploring Backdoor Vulnerabilities of Chat Models,Backdoor chat models（摘要前约 400 字）,
+arXiv:2409.17946,2024,摘要,Breaking PEFT Limitations: Leveraging Weak-to-Strong Knowledge Transfer for Backdoor Attacks in LLMs,W2S 后门迁移（摘要前约 400 字）,
+DOI:10.1109/icassp48485.2024.10446267,2024,摘要,PoisonPrompt: Backdoor Attack on Prompt-Based Large Language Models,PoisonPrompt（摘要前约 400 字）,
+arXiv:2606.16242,2026,摘要,Rapid Poison: Practical Poisoning Attacks Against the Rapid Response Framework,Rapid Poison（摘要前约 400 字）,
+DOI:10.14722/ndss.2025.241089,2025,摘要,Safety Misalignment Against Large Language Models,Safety Misalignment 评测（摘要前约 600 字）,
+arXiv:2409.18169,2026,笔记,Harmful Fine-tuning Attacks and Defenses for Large Language Models: A Survey,Huang 有害微调综述,Y
+arXiv:2404.01099,2024,笔记,What is in Your Safe Data? Identifying Benign Data that Breaks Safety,He 2024,Y
+arXiv:2405.16833,2024,全文节选,Safe LoRA: the Silver Lining of Reducing Safety Risks when Fine-tuning Large Language Models,Safe LoRA：方法段,Y
+arXiv:2405.18641,2024,全文节选,Lisa: Lazy Safety Alignment for Large Language Models against Harmful Fine-tuning Attack,Lisa：威胁模型+算法段,Y
+arXiv:2402.01109,2024,全文节选,Vaccine: Perturbation-aware Alignment for Large Language Models against Harmful Fine-tuning Attack,Vaccine：算法段,Y
+arXiv:2408.09600,2024,全文节选,Antidote: Post-fine-tuning Safety Alignment for Large Language Models against Harmful Fine-tuning,Antidote：方法段,Y
+arXiv:2410.07471,2024,全文节选,SEAL: Safety-enhanced Aligned LLM Fine-tuning via Bilevel Data Selection,SEAL：摘要+假设句,Y
+arXiv:2409.01586,2024,摘要,Booster: Tackling Harmful Fine-tuning for Large Language Models via Attenuating Harmful Perturbation,Booster,Y
+arXiv:2405.14577,2024,摘要,Representation Noising: A Defence Mechanism Against Harmful Finetuning,RepNoise,Y
+arXiv:2408.00761,2024,摘要,Tamper-Resistant Safeguards for Open-Weight LLMs,TAR,Y
+arXiv:2402.14968,2024,摘要,Mitigating Fine-tuning based Jailbreak Attack with Backdoor Enhanced Safety Alignment,BEA,Y
+arXiv:2411.17453,2025,摘要,PEFTGuard: Detecting Backdoor Attacks Against Parameter-Efficient Fine-Tuning,PEFTGuard（PDF 读取失败）,
+arXiv:2402.12168,2024,摘要,Defending Against Weight-Poisoning Backdoor Attacks for Parameter-Efficient Fine-Tuning,PSIM,
+arXiv:2409.14119,2024,摘要,Obliviate: Neutralizing Task-agnostic Backdoors within the Parameter-efficient Fine-tuning Paradigm,Obliviate,
+arXiv:2608.06795,2026,摘要,LoRAScan: Detecting Backdoor Prompts in Low-Rank Adapters for Large Language Models via Down-Projection Activation Spikes,LoRAScan,
+DOI:10.1162/tacl.a.44,2025,摘要,Safe Pruning LoRA: Robust Distance-Guided Pruning for Safety Alignment in Adaptation of LLMs,Safe Pruning LoRA（摘要前约 600 字）,
+DOI:10.1109/tdsc.2026.3662097,2026,摘要,UniFLE: Uniform Fusion of Multiple LoRA Experts for Backdoor Defense in Large Language Models,UniFLE（摘要前约 600 字）,
+arXiv:2410.14425,2024,摘要,Unlearning Backdoor Attacks for LLMs with Weak-to-Strong Knowledge Distillation,W2S 去后门（摘要前约 400 字）,
+OpenAlex:W7219182613,2026,摘要,Backdoor trigger recovery in sleeper-agent language models,sleeper 触发词恢复（硕士论文，摘要前约 600 字）,
+arXiv:2309.06055,2023,摘要,Backdoor Attacks and Countermeasures in Natural Language Processing Models: A Comprehensive Security Review,NLP 后门综述（摘要前约 400 字）,
+arXiv:2406.06852,2024,摘要,A Survey of Recent Backdoor Attacks and Defenses in Large Language Models,LLM 后门综述（摘要前约 400 字）,
+arXiv:2502.18511,2025,摘要,ELBA-Bench: An Efficient Learning Backdoor Attacks Benchmark for Large Language Models,ELBA-Bench（摘要前约 400 字）,
+arXiv:2408.12798,2024,摘要,BackdoorLLM: A Comprehensive Benchmark for Backdoor Attacks and Defenses on Large Language Models,BackdoorLLM,Y
+arXiv:2605.26574,2026,全文节选,GradSentry: Gradient Spectral Entropy for Backdoor Sample Filtering in Large Language Model Fine-Tuning,GradSentry：摘要+引言,Y
+arXiv:2402.04333,2024,摘要,LESS: Selecting Influential Data for Targeted Instruction Tuning,LESS,Y
+arXiv:2402.13494,2024,摘要,GradSafe: Detecting Jailbreak Prompts for LLMs via Safety-Critical Gradient Analysis,GradSafe,Y
+arXiv:1811.00636,2018,摘要,Spectral Signatures in Backdoor Attacks,Spectral signatures,Y
+arXiv:1811.03728,2018,摘要,Detecting Backdoor Attacks on Deep Neural Networks by Activation Clustering,Activation clustering,Y
+arXiv:2011.10369,2020,摘要,ONION: A Simple and Effective Defense Against Textual Backdoor Attacks,ONION,Y
+arXiv:1902.06531,2019,摘要,STRIP: A Defence Against Trojan Attacks on Deep Neural Networks,STRIP,Y
+arXiv:2002.08484,2020,摘要,Estimating Training Data Influence by Tracing Gradient Descent,TracIn,
+arXiv:1811.00741,2018,摘要,Stronger data poisoning attacks break data sanitization defenses,Stronger poisoning breaks sanitization,
+arXiv:2104.13230,2021,摘要,Influence Based Defense Against Data Poisoning Attacks in Online Learning,Influence-based defense,
+arXiv:2103.05633,2021,摘要,Proof-of-Learning: Definitions and Practice,Proof-of-Learning（摘要页，WebFetch）,
+DOI:10.1145/3658644.3670316,2024,摘要,Zero-Knowledge Proofs of Training for Deep Neural Networks,Kaizen zkPoT,
+arXiv:2510.16830,2025,HTML,Verifiable Fine-Tuning for LLMs: Zero-Knowledge Training Proofs Bound to Data Provenance and Policy,Verifiable Fine-Tuning,
+arXiv:1807.00459,2018,全文节选,How To Backdoor Federated Learning,Bagdasaryan：§4.1 威胁模型,Y
+arXiv:1902.06156,2019,全文节选,A Little Is Enough: Circumventing Defenses For Distributed Learning,ALIE：z_max 推导段,Y
+arXiv:1911.11815,2019,摘要,Local Model Poisoning Attacks to Byzantine-Robust Federated Learning,Fang,Y
+DOI:10.14722/ndss.2021.24498,2021,摘要,Manipulating the Byzantine: Optimizing Model Poisoning Attacks and Defenses for Federated Learning,Shejwalkar（NDSS 2021）,Y
+arXiv:2206.10341,2022,摘要,Neurotoxin: Durable Backdoors in Federated Learning,Neurotoxin,Y
+arXiv:2007.05084,2020,摘要,"Attack of the Tails: Yes, You Really Can Backdoor Federated Learning",Edge-case backdoor,Y
+arXiv:2007.08432,2020,摘要,Data Poisoning Attacks Against Federated Learning Systems,Tolpegin,Y
+arXiv:2108.10241,2021,摘要,Back to the Drawing Board: A Critical Evaluation of Poisoning Attacks on Production Federated Learning,Back to the Drawing Board,
+arXiv:1703.02757,2017,全文节选,Byzantine-Tolerant Machine Learning,Krum：威胁模型段,Y
+arXiv:1803.01498,2018,全文节选,Byzantine-Robust Distributed Learning: Towards Optimal Statistical Rates,Median/Trimmed mean：设定段,Y
+arXiv:1808.04866,2018,全文节选,Mitigating Sybils in Federated Learning Poisoning,FoolsGold：目标+算法段,Y
+arXiv:1911.07963,2019,全文节选,Can You Really Backdoor Federated Learning?,Clipping：攻击设定段,Y
+arXiv:2012.13995,2020,全文节选,FLTrust: Byzantine-robust Federated Learning via Trust Bootstrapping,FLTrust：摘要+引言,Y
+arXiv:2101.02281,2021,全文节选,FLAME: Taming Backdoors in Federated Learning (Extended Version 1),FLAME：摘要+前言+预备知识,Y
+arXiv:2201.00763,2022,全文节选,DeepSight: Mitigating Backdoor Attacks in Federated Learning Through Deep Model Inspection,DeepSight：摘要+贡献+威胁模型,Y
+arXiv:2207.09209,2022,笔记,FLDetector: Defending Federated Learning Against Model Poisoning Attacks via Detecting Malicious Clients,FLDetector,Y
+arXiv:2312.04432,2023,笔记,FreqFed: A Frequency Analysis-Based Approach for Mitigating Poisoning Attacks in Federated Learning,FreqFed,Y
+arXiv:2210.07714,2022,摘要,CrowdGuard: Federated Backdoor Detection in Federated Learning,CrowdGuard（PDF 读取失败）,
+arXiv:2106.08283,2021,摘要,CRFL: Certifiably Robust Federated Learning against Backdoor Attacks,CRFL,
+arXiv:2301.09508,2023,摘要,BayBFed: Bayesian Backdoor Defense for Federated Learning,BayBFed,
+DOI:10.1609/aaai.v37i9.26271,2023,摘要,DeFL: Defending against Model Poisoning Attacks in Federated Learning via Critical Learning Periods Awareness,DeFL,
+arXiv:2208.10273,2022,摘要,Long-Short History of Gradients Is All You Need: Detecting Malicious and Unreliable Clients in Federated Learning,Long-Short History,
+DOI:10.1109/tifs.2022.3169918,2022,摘要,ShieldFL: Mitigating Model Poisoning Attacks in Privacy-Preserving Federated Learning,ShieldFL,
+DOI:10.1109/tifs.2024.3352415,2024,摘要,RoseAgg: Robust Defense Against Targeted Collusion Attacks in Federated Learning,RoseAgg,
+arXiv:2305.05506,2023,摘要,FedGT: Identification of Malicious Clients in Federated Learning With Secure Aggregation,FedGT,
+DOI:10.1109/jiot.2025.3602453,2025,摘要,SurroFL: Sketch-Based Defense Against Poisoning in Privacy-Preserving Federated Learning,SurroFL,
+arXiv:2502.03801,2025,全文节选,SoK: Benchmarking Poisoning Attacks and Defenses in Federated Learning,FLPoison SoK：摘要+若干段,Y

@@ -1,0 +1,6 @@
+== runs/q35_recheck_0.8B/rec_flame/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261010210254
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server flame                       server_aggregate             4      0       0       0     0.00  {}
+server flame                       server_post_aggregate        4      0       0       4     0.00  {"sigma": 7.667299047578344e-05}
+server flame                       server_receive               4      0       0       8     0.00  {"bound": 0.07667299047578344}
+changes: rounds with clients reweighted=4, flame: transform_update=8, flame: replace_global=4

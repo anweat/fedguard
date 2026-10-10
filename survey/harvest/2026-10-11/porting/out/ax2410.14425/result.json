@@ -1,0 +1,228 @@
+{
+ "key": "ax2410.14425",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 36085,
+    "outputTokens": 34293,
+    "cacheReadTokens": 132736,
+    "cacheWriteTokens": 0,
+    "totalTokens": 203114
+   },
+   "seconds": 149.8,
+   "errors": 0
+  },
+  {
+   "round": 2,
+   "usage": {
+    "inputTokens": 78463,
+    "outputTokens": 36094,
+    "cacheReadTokens": 1687680,
+    "cacheWriteTokens": 0,
+    "totalTokens": 1802237
+   },
+   "seconds": 164.4,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 82783,
+ "report": {
+  "key": "ax2410.14425",
+  "verdict": "not_expressible",
+  "plugins": [
+   {
+    "name": "w2s_defense",
+    "class": "W2SDefense",
+    "side": "server",
+    "stages": [
+     "server_post_aggregate"
+    ],
+    "needs": [
+     "aggregate",
+     "model_handle"
+    ],
+    "resources": [
+     "clean_teacher",
+     "clean_train_data"
+    ],
+    "acts": [
+     "replace_global"
+    ]
+   }
+  ],
+  "steps_total": 8,
+  "steps_ported": 0,
+  "steps_outside": 2,
+  "ops_used": [],
+  "new_helpers": [],
+  "missing_ops": [
+   {
+    "name": "softmax_kl_divergence",
+    "what": "T^2 * KL(softmax(z_t/T) || softmax(z_s/T)) between two logit tensors (eq. 8-10); fedguard.ops has no softmax and no KL operator, and no view supplies logits to feed one"
+   },
+   {
+    "name": "mean_squared_feature_distance",
+    "what": "mean over a batch of the squared L2 distance between two (n, d) hidden-state matrices (eq. 11-12); not in fedguard.ops"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "the round's new global LoRA, i.e. the model the defense would unlearn (the paper's poisoned student, in factor space)",
+    "where": "server side, after aggregation and before the next broadcast (SERVER_POST_AGGREGATE)",
+    "provided": "yes",
+    "via": "ctx.aggregate.result (AggregateView: base + result, plus AggregateView.global_delta); per-client contributions via ctx.uploads.factor_delta(cid)"
+   },
+   {
+    "data": "the poisoned student as the paper means it: full model weights, since weight poisoning lives in the base model and not only in an adapter",
+    "where": "server side, before the unlearning phase",
+    "provided": "no",
+    "via": "only LoRA factors cross the server boundary here (ClientUpdate.lora/base); a full model exists at most as a ModelHandle, and the narrow ProbeView exposes only behavioral score(lora)"
+   },
+   {
+    "data": "white-box trainable access to the student: a forward on a clean batch, a backward of a plugin-defined composite loss with respect to its LoRA parameters, and an optimizer step whose result is kept",
+    "where": "server side, once per unlearning step (there is no server-side analogue of CLIENT_LOSS / CLIENT_PRE_STEP / CLIENT_STEP)",
+    "provided": "no",
+    "via": "the server stages carry no loss and no gradients kind and no step; ModelHandle must leave the model's weights, mode and gradients exactly as found, and offers neither logits nor gradients of a plugin-defined scalar"
+   },
+   {
+    "data": "the teacher's forward on the same clean batch: logits z_t and final hidden states h_t, after the dimension-alignment layer g",
+    "where": "server side, every unlearning step",
+    "provided": "no",
+    "via": "exactly one ctx.model_handle exists per invocation and the server adapter has a single probe= slot (adapters/openfedllm.py); a named resource has no sanctioned forward path, so using one would assume an interface that is not in the reference"
+   },
+   {
+    "data": "the student's logits z_s on the clean batch (eq. 7's cross-entropy and eq. 8-10's temperature KL)",
+    "where": "server side, every unlearning step",
+    "provided": "no",
+    "via": "ModelHandle returns per-sample losses, hidden states, activations, logprobs and generations; nothing returns logits, and LossView (per_sample_losses, gradients_of) is client-side only"
+   },
+   {
+    "data": "the student's final hidden states h_s, pooled the same way as h_t",
+    "where": "server side, every unlearning step",
+    "provided": "partly",
+    "via": "ModelHandle.hidden(samples, layer, pool) can produce them for the one handle, but the teacher half h_t has no path, and the paper does not say which token position or pooling it uses"
+   },
+   {
+    "data": "clean labelled batches (x, y) from D_clean_train, iterated for 5 epochs at batch size 32 and paired with the student's tokenizer",
+    "where": "server side, throughout the unlearning phase",
+    "provided": "partly",
+    "via": "KIND_SIDE gives the server no `data` kind, so the set can only be an opaque resources entry read by ctx.resource(name); no view iterates it, batches it, or exposes labels"
+   },
+   {
+    "data": "the unlearning schedule itself: 5 epochs, batch 32, AdamW, lr 2e-4, LoRA r=512, and the final-checkpoint rule",
+    "where": "server side, the whole unlearning phase",
+    "provided": "no",
+    "via": "a plugin runs once per stage per round; no stage and no action lets a plugin own or ask the host for a multi-step training loop"
+   },
+   {
+    "data": "the unlearned LoRA to install as the new global model",
+    "where": "server side, at the end of the unlearning phase, before the next broadcast",
+    "provided": "yes",
+    "via": "proposals['replacement'] with a full LoRA state dict at SERVER_POST_AGGREGATE (ACTION_STAGES; core/actions.py _replace_global; returned by OpenFedLLMGuard.after_aggregate) -- but the state itself cannot be produced without the rows above"
+   }
+  ],
+  "external_state": [
+   "the clean small teacher f_t (BERT-110M or GPT-2-124M) after full-parameter fine-tuning on D_clean_train, including its dimension-alignment layer g (W: d_s x d_t, b: d_s) and a forward that returns logits and final hidden states -- prepared offline, outside the library",
+   "the clean labelled training set D_clean_train with its batching, tokenization and how teacher and student inputs are paired across two tokenizers (the paper never says how)",
+   "the poisoned student as a full white-box model including its base weights: the server side here holds LoRA state dicts, so base-weight poisoning has no representation at all",
+   "the unlearning run's own state (AdamW moments, epoch and batch cursor, RNG) for the single 5-epoch pass; the paper accumulates nothing across rounds, so there is no cross-round state to carry"
+  ],
+  "missing_runtime": [
+   {
+    "what": "a server-side training step: loss and gradients kinds on the server, and a point where an optimizer could be stepped and its result kept",
+    "blocks": "steps 3-8 -- the composite loss cannot be formed per clean batch and the PEFT update cannot be applied or read back"
+   },
+   {
+    "what": "a second model handle (the teacher), or any sanctioned way to run another model on the same batch",
+    "blocks": "steps 3, 5, 6 -- there is no z_t and no h_t, so both distillation terms are undefined"
+   },
+   {
+    "what": "logits access on a model handle",
+    "blocks": "steps 4 and 5 -- per_sample losses give scalars and logprob gives mean per-token log-probabilities; neither is a distribution over a vocabulary"
+   },
+   {
+    "what": "gradients of a plugin-defined scalar with respect to the handle model's LoRA parameters, plus a write-back that keeps the resulting weights (a server-side LossView.gradients_of)",
+    "blocks": "step 8 -- per_sample_gradients differentiates only each sample's own training loss (training on it is plain CE fine-tuning, a different method, and the paper's own ablation is about why that is not enough), and handle.lora() restores the previous state, so no unlearned LoRA can be produced"
+   },
+   {
+    "what": "a server-side data kind carrying clean batches and labels",
+    "blocks": "steps 3-8 -- the clean set stays an opaque resource and no view can iterate it, so no batch of (x, y) can be formed"
+   },
+   {
+    "what": "a way for a plugin to own or request the host's training schedule (epochs, batch size, optimizer)",
+    "blocks": "step 8's paper configuration (AdamW, 5 epochs, batch 32, lr 2e-4, r=512); rounds and steps belong to the host, and the paper's own hyperparameters are underreported anyway"
+   }
+  ],
+  "deviations": [
+   "Centralized, full-model method mapped onto a LoRA-factor server view: the paper unlearns a poisoned LLM whose weights it holds, while the aggregate view exposes LoRA factors only, so the poisoned student can only be the round's aggregated LoRA; poison baked into the base weights is invisible to every view in this library",
+   "The paper's output (a model) maps to the replace_global action at SERVER_POST_AGGREGATE, which does exist (ACTION_STAGES, core/actions.py, OpenFedLLMGuard.after_aggregate) -- but the plugin cannot compute the state to pass to it",
+   "Pipeline steps 1-2 (the dimension-alignment layer g and the teacher's full-parameter fine-tuning) are offline preparation of a separate model, so they are resources and not plugin work (rule 3); they are the only two steps outside the plugin",
+   "The paper's evaluation (CA/ASR) and its information-bottleneck corollary (eq. 15) produce no runtime action, and the method produces no per-client score, exclusion or weight -- the library's Decision has no counterpart here",
+   "The paper needs no client/server round trip and reads nothing client-side; this port declares no client-side plugin, and the two 'sides' of the paper collapse onto the server"
+  ],
+  "open_choices": [
+   "Mounting point and output action chosen here: SERVER_POST_AGGREGATE (where the round's new global LoRA is in hand and not yet broadcast) with replace_global; the paper has no round notion to copy",
+   "Nothing else is settled, because nothing could be mounted; a real port would still have to decide the KL argument order (eq. 10's subscripts contradict eqs. 8-9, and Algorithm 1 line 13 reverses the order and drops T)",
+   "Whether the alignment distance is squared (eq. 12) or not (Algorithm 1 line 14), and which token position or pooling h_t and h_s are taken from",
+   "Whether z_t and z_s are vocabulary logits or classification-head logits, and how two different tokenizers are paired (layer g only matches hidden widths)",
+   "The concrete alpha/beta/gamma per dataset and victim model (Appendix B.1 gives candidate sets only) and the teacher's training hyperparameters",
+   "Whether the student LoRA continues the existing poisoned adapter or starts fresh, which modules it targets, and its alpha and dropout"
+  ],
+  "needs_from_authors": [
+   "the (alpha, beta, gamma) values per dataset/victim pair; Appendix B.1 gives only the candidate sets",
+   "the teacher-training hyperparameters (epochs, lr, batch size, optimizer) and the exact form of l in eq. (5)",
+   "how teacher and student outputs are made comparable across two vocabularies, and whether z_t/z_s are vocabulary or classifier logits",
+   "hidden-state extraction: token position and pooling for h_t/h_s, and whether the alignment distance is squared",
+   "the lifecycle of the alignment layer g: frozen during unlearning, updated with the teacher, included in the teacher logits?",
+   "the LoRA configuration (target modules, alpha, dropout, whether the head is adapted) and whether the adapter is re-initialized on the poisoned student",
+   "the checkpoint-selection rule over the 5 epochs, and D_clean_train sizes and splits for datasets other than AG's News"
+  ],
+  "confidence": "high",
+  "confidence_reason": "Every blocking claim is a direct reading of the library source in this workspace, not only of the reference: core/types.py (KIND_SIDE/STAGE_KINDS -- no data, loss or gradients kind on any server stage; ACTION_STAGES), core/plugin.py::check_contract, core/context.py (one view per kind, PermissionError/LookupError semantics), views/model.py (ModelHandle is forward-only, must restore weights/mode/gradients, has no logits and no gradients of a plugin-defined scalar; ProbeView is narrower still), core/actions.py (_replace_global exists but needs a state), adapters/openfedllm.py (a single probe= slot, one model_handle view per invocation), and methods/server_uploads.py::SafeLoRA as the closest ported server-side analogue (weight-space only, no model passes). The only thing not executed here is the generated test, which runs on the verify host; its assertions use only harness helpers already exercised by the repository's own tests."
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "W2SDefense",
+    "name": "w2s_defense",
+    "side": "server",
+    "stages": [
+     "server_post_aggregate"
+    ],
+    "needs": [
+     "aggregate",
+     "model_handle"
+    ],
+    "resources": [
+     "clean_teacher",
+     "clean_train_data"
+    ],
+    "acts": [
+     "replace_global"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 66
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 86,
+  "test_lines": 54,
+  "test_summary": "3 passed in 1.00s"
+ },
+ "status": "passed",
+ "tokens": 184935,
+ "cache_read_tokens": 1820416,
+ "seconds": 314.2
+}

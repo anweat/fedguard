@@ -1,0 +1,6 @@
+== runs/flower_llm_refit_0.8B/trainer_ext/records/guard
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client la_lora_dp                  client_loss                 32      0       0       0     0.00  {"step": 4, "active": "A", "bound": 0.056944900278070004, "samples": 4, "clipped": 2}
+client la_lora_dp                  client_pre_step             32      0       0      32     0.00  {"active": "A", "matrices": 30}
+client lisa                        client_loss                 32      0       0      32     0.00  {"step": 4, "state": "finetune", "drift": 0.14795461336378884, "task_loss": 2.4761271476745605}
+changes: lisa: transform_loss=32, la_lora_dp: transform_gradients=32

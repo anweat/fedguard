@@ -1,0 +1,4 @@
+== runs/q35_sweep_4B/rec_crfl/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261009225056
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+server crfl                        server_post_aggregate        4      0       0       4     0.00  {"rho": 2.4, "clip_factor": 0.0978354073477441, "noise": true}
+changes: crfl: replace_global=4

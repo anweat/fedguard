@@ -1,0 +1,4 @@
+== runs/q35_ext_0.8B/rec_lisa/_0__0_300_fedavg_c5s5_i6_b4a1_l256_r16a32_20261011021041
+side   plugin                      stage                    calls errors  scored actions  seconds  last evidence
+client lisa                        client_loss                120      0       0     120     0.00  {"step": 6, "state": "finetune", "drift": 0.012372023633106603, "task_loss": 1.5703928470611572}
+changes: lisa: transform_loss=120

@@ -1,0 +1,194 @@
+{
+ "key": "xie2024gradsafe",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 79769,
+    "outputTokens": 80775,
+    "cacheReadTokens": 2941696,
+    "cacheWriteTokens": 0,
+    "totalTokens": 3102240
+   },
+   "seconds": 409.5,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 82548,
+ "report": {
+  "key": "xie2024gradsafe",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "gradsafe",
+    "class": "GradSafe",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "unsafe_reference",
+     "probe"
+    ],
+    "acts": [
+     "mask_samples"
+    ]
+   }
+  ],
+  "steps_total": 10,
+  "steps_ported": 7,
+  "steps_outside": 3,
+  "ops_used": [
+   "fedguard.ops.sampling.subsample",
+   "fedguard.ops.probe.apply_logistic"
+  ],
+  "new_helpers": [
+   {
+    "name": "prompt_response_pair",
+    "lines": 3,
+    "generic": false,
+    "what": "把待检测提示套进论文 4.1.4 节的 system prompt 模板，再接上顺从回复 \"Sure\"（步骤 1 的配对构造）；模板与回复是构造参数"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "fedguard.ops.geometry.cosine_rows",
+    "what": "X 的每一行与 Y 对应行的余弦（cosine_to 是单参考向量、cosine_matrix 是全配对，缺 index 对齐的一对一）；这里用 torch.nn.functional.cosine_similarity 顶替"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "待筛的提示文本（客户端本轮本地数据）",
+    "where": "客户端，CLIENT_PRE_TRAIN，本地训练开始前",
+    "provided": "yes",
+    "via": "ctx.data（DataView.samples()/text(i)/manifest），声明 needs={'data'}"
+   },
+   {
+    "data": "（prompt, 顺从回复）配对的损失对冻结基座权重矩阵的梯度",
+    "where": "客户端，CLIENT_PRE_TRAIN，每条提示一次反向",
+    "provided": "partly",
+    "via": "ctx.model_handle.per_sample_gradients(samples, 谓词, scope='all', reduce=...) 能取到基座权重的逐样本梯度；但库无法描述一个 (prompt, response) 对、也无法把损失限制在回复 token 上，插件只能把配对拼成一条文本交给句柄，由句柄自己的训练损失决定梯度。按 token 段取损失只有训练步内的 LossView（loss_on/gradients_of），而它只看到宿主自己的 batch。"
+   },
+   {
+    "data": "可反传的对齐基座 LLM 本身（论文用 Llama-2-7b-chat-hf）",
+    "where": "客户端：句柄包着正在训练的模型，scope='all' 可达冻结基座；服务器：宿主默认不提供模型",
+    "provided": "partly",
+    "via": "model_handle；库既不提供基座模型也不校验它是否对齐（Table 7 显示方法依赖对齐）。服务器侧即使自备句柄也拿不到提示文本。"
+   },
+   {
+    "data": "被判定样本的身份，用于把它从本轮训练里删掉",
+    "where": "客户端，CLIENT_PRE_TRAIN",
+    "provided": "yes",
+    "via": "ctx.data.manifest[i].hash + proposals={'mask': [...]}（动作 mask_samples）"
+   },
+   {
+    "data": "GradSafe-Adapt 需要的目标域带标签提示（用来拟合逻辑回归探针）",
+    "where": "训练之外；联邦里标签在客户端手里",
+    "provided": "no",
+    "via": "库里没有拟合阶段，也没有标签汇聚的通道；只能在库外拟合后以资源 `probe` 传入（规则 3）。论文也没写联邦下标签怎么汇。"
+   },
+   {
+    "data": "安全关键切片集合 S 与不安全梯度参考（不是从训练里取，是离线产物）",
+    "where": "训练之外、开跑之前，防御方一侧（论文 3.2 节的一次性离线准备）",
+    "provided": "yes（作为资源）",
+    "via": "资源 `unsafe_reference`；库里没有“轮次之外且能拿到 model_handle”的位置，所以步骤 4–6 放不进插件，只能离线算好传入。"
+   }
+  ],
+  "external_state": [
+   "对齐过的基座 LLM（论文 Llama-2-7b-chat-hf），且必须能对参数求梯度；这是部署资源，不是插件产物",
+   "4 条参考提示（2 不安全 + 2 安全），论文附录 A.2 逐字给出",
+   "安全关键切片集合 S 与对应的不安全梯度参考切片（论文 Phase I–III 的输出）：资源 `unsafe_reference` = {\"slices\": [(参数名, \"row\"|\"col\", 下标), ...], \"vectors\": [一维张量, ...]}；存储量正比于 Σ 切片长度",
+   "GradSafe-Adapt 的已拟合逻辑回归探针（fedguard.ops.probe.fit_logistic 的返回形式）以及拟合它用的带标签目标域提示（论文用 ToxicChat 训练集）；以 `probe` 资源传入，仅 probe=True 时声明",
+   "离线识别时用的 gap threshold（论文取 1）与参考提示条数（2+2）：随离线产物一起决定，插件不重算",
+   "插件不保留跨轮状态：S 与参考固定不变，与论文一致"
+  ],
+  "missing_runtime": [
+   {
+    "what": "对任意文本指定一个 (prompt, response) 对，并按 token 段（只在回复上）取损失及其对基座权重的梯度",
+    "blocks": "论文步骤 2/7 的精确梯度——插件只能拿到句柄对配对文本自己那条训练损失的逐样本梯度，切片梯度因此是近似"
+   },
+   {
+    "what": "一个在首轮之前、能拿到 model_handle 的位置（或任何轮外/离线入口），用来在库内跑 Phase I–III 并保存产物",
+    "blocks": "步骤 4（不安全参考平均）、5（逐切片余弦）、6（相似度差阈值）——S 与不安全梯度参考必须在库外算好"
+   }
+  ],
+  "deviations": [
+   "定位：论文是集中式的（在线 ChatBot 第一道防线 / 微调服务入口筛数据），这里移到客户端 CLIENT_PRE_TRAIN，由持有数据的一侧在本地训练前筛自己的提示，动作落到 mask_samples；论文的服务器侧变体在联邦 LoRA 下不可表达——提示文本永远不到服务器，服务器只看得到 LoRA 上传",
+   "梯度是适配器对配对文本的逐样本损失梯度，不是论文的 standard loss；库不能把损失钉在回复 token 上（见 missing_runtime）",
+   "梯度取自句柄包着的模型（冻结基座 + 当前已加载的 LoRA），不是在干净的对齐基座上另起一次前向",
+   "只切 2 维参数矩阵；1 维参数（LayerNorm、bias）不切，论文只对 gradient matrix 定义切片",
+   "论文没有形式化检测后的处理；这里用 mask_samples 按样本哈希把本轮数据筛掉",
+   "GradSafe-Adapt 只移植了推理：探针拟合按规则 3 属于库外（离线训练独立检测器）",
+   "步骤计数：步骤 4–6 是论文自己标注的 outside_training、按规则 3 不属于插件；步骤 9b 记为已移植但只含推理，拟合在库外",
+   "论文的 0.25 阈值原样作为默认值，没有在本库做校准（论文没说 0.25 怎么选出来）"
+  ],
+  "open_choices": [
+   "配对文本：模板 + 换行 + \"Sure\"（模板与回复取自论文 4.1.4，分隔方式论文没说）",
+   "零范数切片的余弦记 0（与 fedguard.ops.geometry.cosine_to 的约定一致）；论文未说明",
+   "行切片与列切片混在同一个不加权的平均里，特征向量顺序就是资源给的顺序（论文未说明是否加权、是否合并）",
+   "GradSafe-Adapt 的判定阈值取概率 0.5（论文未给）",
+   "资源与模型的匹配是严格的：拿 ModelHandle.layout(..., scope=\"all\") 逐条核对参数名、下标与长度，只要有一条对不上就整轮只报告不动作，而不是悄悄丢掉切片",
+   "S 为空时什么也不评、什么也不筛（论文没给回退策略）",
+   "max_samples（论文没有）用于限制每轮反向次数；没被抽到的样本不动",
+   "打分与掩码只作用于本轮：同一个样本下一轮可以再被筛（论文没有跨轮状态）",
+   "resources 按实例声明：GradSafe-Zero 只声明 unsafe_reference，probe=True 时才追加 probe"
+  ],
+  "needs_from_authors": [
+   "standard loss 的确切定义：是否只在回复 token 上算、是否按 token 平均、label shift 与 batch size（论文只说 standard loss）",
+   "参考提示是否也套第 4.1.4 节那段 system prompt 模板（Figure 2 像套了，正文与附录只给裸文本）",
+   "切片集合对参数的覆盖：embedding / lm_head 是否纳入、1 维参数怎么处理、行列切片如何枚举（2,498,560 这个数要代码才能对上）",
+   "0.25 阈值的校准方式（验证集？分位数？）——换模型或换参考提示后必须重标",
+   "GradSafe-Adapt 逻辑回归的全部细节：正则化、是否标准化、类别不平衡处理、迭代次数、二值阈值",
+   "能复现 Table 1 的 11.78% / 3.53% 选择比例与 Table 7 对齐依赖的识别与评测代码"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "运行时路径逐条对着库源码核过：scope=\"all\" + 谓词确实能拿到冻结基座权重的逐样本梯度（HFModelHandle.parameters/per_sample_gradients），mask_samples 是 CLIENT_PRE_TRAIN 的合法动作，插件通过了静态检查、契约检查、类说明小节检查与 4 个无模型机制测试（含正例、反例、Adapt 与 Zero 分歧、空 S、资源与模型不匹配）。但论文最关键的损失定义（回复 token 段）无法在插件里表达，拼接文本由句柄自己的训练损失决定梯度，属于近似；Phase I–III 的识别在库内没有落点，S 与参考的数值语义只能靠资源；0.25 与探针阈值也未校准，因此不能说与论文实现等价。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "GradSafe",
+    "name": "gradsafe",
+    "side": "client",
+    "stages": [
+     "client_pre_train"
+    ],
+    "needs": [
+     "data",
+     "model_handle"
+    ],
+    "resources": [
+     "unsafe_reference"
+    ],
+    "acts": [
+     "mask_samples"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 125
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 150,
+  "test_lines": 118,
+  "test_summary": "4 passed in 1.01s"
+ },
+ "status": "passed",
+ "tokens": 160544,
+ "cache_read_tokens": 2941696,
+ "seconds": 409.5
+}

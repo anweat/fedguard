@@ -1,0 +1,87 @@
+cluster.agglomerative(D: 'torch.Tensor', n_clusters: 'int', linkage: 'str' = 'average') -> 'torch.Tensor' — Bottom-up clustering from a distance matrix until `n_clusters` remain. linkage: average | single | complete.
+cluster.dbscan(D: 'torch.Tensor', eps: 'float', min_samples: 'int') -> 'torch.Tensor' — DBSCAN on a distance matrix. A point is a core point when at least `min_samples` points (itself included) lie within eps. Noise is labelled -1.
+cluster.density_clusters(D: 'torch.Tensor', min_samples: 'int' = 3, scale: 'float' = 2.0) -> 'torch.Tensor' — DBSCAN with the radius read off the data: eps = scale * median distance to the (min_samples - 1)-th nearest neighbour. Finds however many dense groups there are; sparse points are noise (-1). A stand-in where a method asks for HDBSCAN without giving its parame
+cluster.distances(X: 'torch.Tensor', metric: 'str' = 'euclidean') -> 'torch.Tensor' — Distance matrix between rows: euclidean, or cosine (1 - cosine similarity).
+cluster.gap_statistic_k(x: 'torch.Tensor', k_max: 'int' = 10, references: 'int' = 20, seed: 'int' = 0) -> 'int' — Number of clusters in a 1-D sample by the gap statistic (Tibshirani et al. 2001), as FLDetector uses it: min-max scale, compare log within-cluster dispersion against uniform reference samples, and return the smallest k with Gap(k) >= Gap(k+1) - s(k+1). Returns
+cluster.kmeans(X: 'torch.Tensor', k: 'int', seed: 'int' = 0, iters: 'int' = 100, restarts: 'int' = 5) -> 'tuple[torch.Tensor, torch.Tensor]' — Lloyd's algorithm with k-means++ seeding; the best of `restarts` runs by inertia. Returns (labels, centers).
+cluster.majority_cluster(D: 'torch.Tensor', min_size: 'int | None' = None, gap: 'float' = 2.0) -> 'torch.Tensor' — The dense group that holds a majority of the points; returns a boolean membership mask. FLAME and FreqFed run HDBSCAN with min_cluster_size = n // 2 + 1 and keep that single cluster. When scikit-learn is installed this calls its HDBSCAN with exactly that setti
+cluster.silhouette(D: 'torch.Tensor', labels: 'torch.Tensor') -> 'float' — Mean silhouette coefficient from a distance matrix; noise points (-1) are ignored. Needs >= 2 clusters.
+density.gaussian_kde(x: 'torch.Tensor', grid: 'torch.Tensor', bandwidth: 'float | None' = None) -> 'torch.Tensor' — Gaussian kernel density of the sample `x` evaluated on `grid`.
+density.js_divergence(p: 'torch.Tensor', q: 'torch.Tensor', eps: 'float' = 1e-12) -> 'float' — Jensen-Shannon divergence (nats) between two non-negative vectors, each normalized to sum 1.
+density.kde_valley_threshold(x: 'torch.Tensor', lo: 'float' = 0.0, hi: 'float' = 1.0, fallback: 'float | None' = None, points: 'int' = 512) -> 'tuple[float, bool]' — Threshold at the density minimum between the outermost two peaks of a 1-D sample on [lo, hi]. Returns (threshold, bimodal). With fewer than two peaks there is no valley: returns (fallback, False), or raises when no fallback is given.
+density.knn_density_ratio(X: 'torch.Tensor', k: 'int', bandwidth: 'float | None' = None) -> 'torch.Tensor' — Local density of each row relative to its k nearest neighbours (squared Euclidean distance). Density of a point: mean Gaussian kernel to its k neighbours. Score: the point's density divided by the mean density of those neighbours. About 1 inside a homogeneous 
+density.shannon_entropy(p: 'torch.Tensor', eps: 'float' = 1e-12) -> 'float' — Entropy (nats) of a non-negative vector after normalizing it to sum 1.
+density.silverman_bandwidth(x: 'torch.Tensor') -> 'float' — h = 1.06 * std * n^(-1/5); a small positive floor when the sample has no spread.
+geometry.cosine_matrix(X: 'torch.Tensor') -> 'torch.Tensor' — Cosine similarity between rows; rows of zero norm get zeros.
+geometry.cosine_to(X: 'torch.Tensor', ref: 'torch.Tensor') -> 'torch.Tensor' — Cosine of every row to one reference vector; zero where either norm is zero.
+geometry.cross_section(G: 'torch.Tensor') -> 'tuple[list[float], list[float], list[float]]' — From a Gram matrix of n updates, per client: norm, mean cosine to every other client, cosine to the mean of the other clients. Cosines are NaN when undefined (n < 2 or zero norms).
+geometry.distance_to(X: 'torch.Tensor', ref: 'torch.Tensor') -> 'torch.Tensor' — 
+geometry.gram_matrix(X: 'torch.Tensor') -> 'torch.Tensor' — 
+geometry.krum_scores(X: 'torch.Tensor', f: 'int') -> 'torch.Tensor' — Krum (Blanchard et al. 2017): for each row, the sum of squared distances to its n - f - 2 nearest other rows. Lower is more central. Needs n >= f + 3.
+geometry.pairwise_sq_distances(X: 'torch.Tensor') -> 'torch.Tensor' — Squared Euclidean distances between rows, from the Gram matrix; exact zeros on the diagonal.
+lowrank.gram(items: 'list[LowRank]', dtype: 'torch.dtype' = torch.float64) -> 'torch.Tensor' — Pairwise Frobenius inner products of same-shape low-rank matrices, batched into two GEMMs. Returns an (n, n) tensor G with G[i, j] = <M_i, M_j>.
+lowrank.kappa(B: 'torch.Tensor', A: 'torch.Tensor') -> 'float' — Factorization redundancy ||B||·||A|| / ||BA|| (>= 1). Undefined (inf) when BA = 0.
+probe.apply_logistic(probe: 'dict[str, torch.Tensor]', X: 'torch.Tensor') -> 'torch.Tensor' — Probability of class 1 for every row.
+probe.fit_logistic(X: 'torch.Tensor', y: 'torch.Tensor', l2: 'float' = 0.001, iters: 'int' = 100) -> 'dict[str, torch.Tensor]' — L2-regularized logistic regression by Newton's method. y in {0, 1}. Returns {"weight", "bias", "mean", "scale"}; features are standardized with the training mean and scale. With more features than samples the minimizer lies in the row space of the standardized
+robust.coordinate_median(X: 'torch.Tensor') -> 'torch.Tensor' — Coordinate-wise median of the rows (Yin et al. 2018). For an even count this is the mean of the two middle values, unlike torch.median, which returns the lower one.
+robust.foolsgold_weights(cs: 'torch.Tensor', kappa: 'float' = 1.0) -> 'torch.Tensor' — FoolsGold (Fung et al. 2018) learning rates from a cosine-similarity matrix of clients' accumulated updates: pardoning, alpha = 1 - max similarity, rescale by the maximum, logit. Boundary handling follows the authors' reference code: alpha is clamped to [0, 1]
+robust.geometric_median(X: 'torch.Tensor', weights: 'torch.Tensor | None' = None, iters: 'int' = 100, tol: 'float' = 1e-08, eps: 'float' = 1e-10) -> 'torch.Tensor' — Smoothed Weiszfeld iteration for the point minimizing the weighted sum of distances to the rows.
+robust.largest_gap_threshold(x: 'torch.Tensor') -> 'float' — Midpoint of the widest gap between consecutive sorted values: a data-driven cut between two groups.
+robust.mad_scores(x: 'torch.Tensor') -> 'torch.Tensor' — (x - median) / (1.4826 * MAD) for a 1-D tensor; falls back to the mean absolute deviation when the MAD is zero.
+robust.quantile_threshold(benign: 'list[float] | np.ndarray', fpr: 'float') -> 'float' — Threshold at the (1 - fpr) quantile of a benign sample (upper tail).
+robust.robust_z(values: 'dict[str, float]', min_n: 'int' = 5) -> 'dict[str, float] | None' — Median/MAD z-scores. Returns None when there are too few points to be meaningful.
+robust.trimmed_mean(X: 'torch.Tensor', beta: 'float') -> 'torch.Tensor' — Coordinate-wise mean after dropping the floor(beta * n) largest and smallest values in each coordinate (Yin et al. 2018). 0 <= beta < 0.5.
+sampling.coordinates(d: 'int', k: 'int | None', seed: 'int') -> 'list[int]' — A fixed subset of k of d coordinates determined by `seed` alone, so that different parties (or rounds) look at the same coordinates.
+sampling.stratified(groups: 'list', per_group: 'int', rng: 'np.random.Generator') -> 'list[int]' — Indices holding at most `per_group` items of each distinct value of `groups`, in increasing order.
+sampling.subsample(n: 'int', k: 'int | None', rng: 'np.random.Generator') -> 'list[int]' — Indices of at most k of n items, in increasing order; all of them when k is None or k >= n.
+sampling.top_k(scores: 'dict', k: 'int') -> 'list' — Keys of the k largest scores, largest first; ties broken by key order.
+sequential.beta_mean(alpha: 'float', beta: 'float') -> 'float' — Expected trust alpha / (alpha + beta).
+sequential.beta_update(alpha: 'float', beta: 'float', suspicious: 'bool', decay: 'float' = 1.0) -> 'tuple[float, float]' — One observation into Beta(alpha, beta) trust counts, with optional forgetting of older rounds. alpha counts benign observations, beta counts suspicious ones.
+sequential.cusum_step(s: 'float', z: 'float', k: 'float' = 0.5, cap: 'float | None' = None) -> 'float' — One-sided CUSUM update S <- max(0, S + z - k). `cap` bounds a single round's contribution so one extreme round cannot confirm a client by itself (cap=None disables it).
+sequential.ema(previous: 'float | None', value: 'float', alpha: 'float') -> 'float' — Exponential moving average; the first value is taken as is.
+sequential.lbfgs_hvp(dW: 'torch.Tensor', dG: 'torch.Tensor', v: 'torch.Tensor') -> 'torch.Tensor' — Hessian-vector product H v from the compact L-BFGS representation (Byrd, Nocedal, Schnabel 1994), as used by FLDetector. dW and dG are (p, N): the last N differences of the global model and of the aggregated update, oldest first. Solves with a pseudo-inverse, 
+sequential.lowpass_1d(x: 'torch.Tensor', dim: 'int', taps: 'int' = 5) -> 'torch.Tensor' — Binomial low-pass filter along one dimension with symmetric (reflect) padding; the shape is kept. Written as a sum of shifted slices: no convolution backend is involved.
+sequential.one_sided_z(values: 'dict[str, float]', sign: 'int', min_n: 'int' = 5) -> 'dict[str, float] | None' — sign * robust z across this round's participants; None when too few clients take part. Weakness: with several colluding clients in a small round the median/MAD are themselves contaminated.
+sequential.reference_z(values: 'dict[str, float]', sign: 'int', center: 'float', scale: 'float') -> 'dict[str, float]' — sign * (x - center) / scale against a calibrated benign reference for this round. Does not depend on who else takes part in the round, so collusion and client sampling do not distort it; it does depend on the calibration runs matching the deployment setting.
+sequential.window_mean(history: 'list[torch.Tensor]', length: 'int') -> 'torch.Tensor' — Mean of the last `length` entries of a per-round history (fewer if the history is shorter).
+spectral.effective_rank(M: 'torch.Tensor') -> 'float' — exp(spectral entropy): the number of directions the energy is effectively spread over.
+spectral.spectral_entropy(M: 'torch.Tensor', eps: 'float' = 1e-12) -> 'float' — Shannon entropy (nats) of the normalized squared singular values of a matrix: low when the energy sits in a few directions, log(rank) when it is spread evenly.
+spectral.top_direction(X: 'torch.Tensor', center: 'bool' = True) -> 'torch.Tensor' — Unit vector of the direction of largest variance (or largest energy with center=False) among the rows.
+spectral.top_singular_scores(X: 'torch.Tensor') -> 'torch.Tensor' — Spectral signatures (Tran et al. 2018): squared projection of each centered row on the top right singular vector of the centered matrix. Rows of a small, coherent sub-population score high.
+states.add(base: 'State', d: 'State', scale: 'float' = 1.0) -> 'State' — base + scale * d; entries of base without a counterpart are kept.
+states.delta(state: 'State', base: 'State') -> 'State' — state - base, per entry, for the keys both have with equal shapes.
+states.flatten(state: 'State', keys: 'list[str] | None' = None, dtype: 'torch.dtype' = torch.float64) -> 'torch.Tensor' — One vector, entries in sorted key order (or the given order).
+states.norm(state: 'State') -> 'float' — 
+states.stack(states: 'list[State]', keys: 'list[str] | None' = None) -> 'torch.Tensor' — (n, d) matrix of flattened states.
+states.unflatten(vector: 'torch.Tensor', like: 'State', keys: 'list[str] | None' = None) -> 'State' — Inverse of flatten: cut `vector` back into the shapes and dtypes of `like`.
+states.weighted_average(states: 'list[State]', weights: 'list[float] | None' = None) -> 'State' — Entry-wise weighted mean, in the dtype of the first state (FedAvg in factor space).
+text.hashed_bag_of_words(text: 'str', dim: 'int' = 32) -> 'list[float]' — L2-normalized counts of lowercase word tokens hashed into `dim` buckets (CRC32, stable across runs).
+text.leave_one_out(words: 'list[str]') -> 'list[str]' — The n texts obtained by deleting one word each.
+text.outlier_words(base: 'float', without: 'list[float]', bar: 'float' = 0.0) -> 'list[int]' — ONION's rule on perplexities: word i is suspicious when deleting it lowers the perplexity by more than `bar` (f_i = base - without_i > bar). Returns the indices.
+text.split_words(text: 'str') -> 'list[str]' — Whitespace-separated words, punctuation attached.
+transform.as_square(vector: 'torch.Tensor') -> 'torch.Tensor' — Lay a vector out row by row in the smallest square that holds it, zero-padded: a 2-D signal for dct_2d.
+transform.dct(x: 'torch.Tensor', dim: 'int' = -1) -> 'torch.Tensor' — Orthonormal DCT-II along one dimension (matches scipy.fft.dct(x, type=2, norm="ortho")).
+transform.dct_2d(x: 'torch.Tensor') -> 'torch.Tensor' — Orthonormal 2-D DCT-II over the last two dimensions.
+transform.l2_normalize(X: 'torch.Tensor', eps: 'float' = 1e-12) -> 'torch.Tensor' — 
+transform.low_frequency(coeffs: 'torch.Tensor', count: 'int') -> 'torch.Tensor' — The `count` lowest-frequency coefficients of a 2-D DCT, in order of increasing row + column index (ties by row), flattened. This is the anti-diagonal ordering used to keep the low-frequency corner.
+transform.low_frequency_triangle(coeffs: 'torch.Tensor') -> 'torch.Tensor' — FreqFed's filter on a square coefficient matrix of side s: the entries with i, j <= s // 2 and i + j <= s // 2, row by row, as one vector.
+transform.pca(X: 'torch.Tensor', k: 'int') -> 'tuple[torch.Tensor, torch.Tensor, torch.Tensor]' — Project the rows on their top-k principal directions. Returns (scores (n, k), components (k, d), explained variance ratio (k,)). Signs are fixed so that the largest-magnitude entry of each component is positive.
+transform.random_projection(X: 'torch.Tensor', k: 'int', seed: 'int') -> 'torch.Tensor' — Gaussian random projection to k dimensions, scaled so squared norms are preserved in expectation. The same seed gives the same projection, so sketches from different parties are comparable.
+transform.standardize(X: 'torch.Tensor', eps: 'float' = 1e-12) -> 'torch.Tensor' — Zero mean, unit variance per column; constant columns become zero.
+update.add_gaussian_noise(state: 'states.State', sigma: 'float', generator: 'torch.Generator') -> 'states.State' — Add independent N(0, sigma^2) noise to every entry, drawn from the given generator.
+update.clip_and_noise(grads: 'dict[str, torch.Tensor]', bound: 'float', sigma: 'float', generator: 'torch.Generator', denominator: 'float' = 1.0) -> 'dict[str, torch.Tensor]' — Gaussian mechanism on one gradient: joint L2 clipping to `bound`, then N(0, (sigma*bound/denominator)^2) noise. Applied to a batch gradient this bounds the batch's contribution, not each sample's.
+update.clip_state_norm(state: 'states.State', bound: 'float') -> 'tuple[states.State, float]' — Scale the whole state (not a delta) down so its norm does not exceed `bound`. Returns (state, factor).
+update.clip_to_norm(state: 'states.State', base: 'states.State', bound: 'float') -> 'tuple[states.State, float]' — Scale the delta (state - base) down so its norm does not exceed `bound`. Returns (new state, factor <= 1).
+update.left_project(B: 'torch.Tensor', C: 'torch.Tensor') -> 'torch.Tensor' — C @ B: apply a (d_out, d_out) projection to the output side of a LoRA product B @ A by changing B only. The result stays rank r, so it fits the same factor shapes.
+update.project_onto(vector: 'torch.Tensor', directions: 'torch.Tensor') -> 'torch.Tensor' — Keep only the components of `vector` in the span of the rows of `directions`.
+update.project_out(vector: 'torch.Tensor', directions: 'torch.Tensor') -> 'torch.Tensor' — Remove from `vector` its components along the rows of `directions` (orthonormalized first).
+update.scale_to_norm(state: 'states.State', base: 'states.State', target: 'float') -> 'states.State' — Rescale the delta to exactly `target` norm (FLTrust-style normalization). A zero delta is left alone.
+
+# model handle (runtime, not ops)
+model.losses(samples) — per-sample loss
+model.hidden(samples, layer, pool) — one hidden-state vector per sample
+model.activations(samples, select) — outputs of chosen submodules per sample
+model.per_sample_gradients(samples, group) — flattened per-sample gradients of a parameter group
+model.logprob(prompts, targets) — mean log-probability of target text
+model.generate(prompts) — generated text
+model.lora(state) — temporarily load a LoRA state

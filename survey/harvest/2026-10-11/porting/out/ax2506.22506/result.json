@@ -1,0 +1,241 @@
+{
+ "key": "ax2506.22506",
+ "rounds": [
+  {
+   "round": 1,
+   "usage": {
+    "inputTokens": 91731,
+    "outputTokens": 109738,
+    "cacheReadTokens": 3224960,
+    "cacheWriteTokens": 0,
+    "totalTokens": 3426429
+   },
+   "seconds": 446.0,
+   "errors": 0
+  }
+ ],
+ "prompt_chars": 85036,
+ "report": {
+  "key": "ax2506.22506",
+  "verdict": "partial",
+  "plugins": [
+   {
+    "name": "sabre_embeddings",
+    "class": "SabreEmbeddings",
+    "side": "client",
+    "stages": [
+     "client_post_train"
+    ],
+    "needs": [
+     "data"
+    ],
+    "resources": [
+     "embeddings"
+    ],
+    "acts": []
+   },
+   {
+    "name": "sabre_fl",
+    "class": "SabreFL",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "uploads",
+     "reports"
+    ],
+    "resources": [
+     "detector"
+    ],
+    "acts": [
+     "select_and_weight"
+    ]
+   }
+  ],
+  "steps_total": 10,
+  "steps_ported": 5,
+  "steps_outside": 5,
+  "ops_used": [],
+  "new_helpers": [
+   {
+    "name": "detector_flags",
+    "lines": 11,
+    "generic": true,
+    "what": "在 no_grad 下把一批嵌入过防御方的二分类检测器，并把 class-1 概率按阈值变成 0/1 标记；库的 probe 算子只覆盖它自己拟合的线性探针，不覆盖外部传入的模块"
+   },
+   {
+    "name": "rank_top_m",
+    "lines": 9,
+    "generic": true,
+    "what": "取分数最大的 m 个键、并列按给定顺序 tie-break 的 rank 截断；库里有 largest_gap_threshold（阈值式切分）但没有 top-m 选择"
+   }
+  ],
+  "missing_ops": [
+   {
+    "name": "fedguard.ops.robust.top_m",
+    "what": "对一组分数做确定性的 top-m 选择（rank 式、不用阈值）；本次以插件文件里的 rank_top_m 顶替"
+   },
+   {
+    "name": "fedguard.ops.probe.apply_binary",
+    "what": "把防御方自备的二分类检测模块（论文是两层 MLP）对一批特征做前向并把 logits 按阈值二值化；现有 apply_logistic 只适用于 fit_logistic 产出的线性探针字典"
+   }
+  ],
+  "extraction_needs": [
+   {
+    "data": "每个客户端本地样本的图像嵌入（冻结 CLIP 图像编码器 + 固定 prompt learner 的输出，论文 d = 512）",
+    "where": "客户端，本轮本地训练结束、上传之前（CLIENT_POST_TRAIN）",
+    "provided": "partly",
+    "via": "位置和通道都有：CLIENT_POST_TRAIN 能读 data，Findings.attachments 经 ClientGuard.outbox_tensors() 与 ClientUpdate.attachments 到服务器的 ctx.attachment('sabre_embeddings.embeddings')。缺的是产生它的运行时：ModelHandle 只能对正在训练的文本模型做前向/反向（tokens/losses/hidden/activations/per_sample_gradients/logprob/generate），没有图像输入也没有第二个模型的入口，所以编码只能由防御方在库外做完，按样本 hash 作为 resources['embeddings'] 传入"
+   },
+   {
+    "data": "每个客户端本轮的嵌入条数 n_k（式 7 的分母，也是 count 口径的基础）",
+    "where": "客户端，随嵌入上传；服务器 SERVER_RECEIVE 读取",
+    "provided": "yes",
+    "via": "附件张量的第 0 维（客户端插件按 ctx.data.manifest 逐样本发）。注意 reports.values('num_examples') 是自报样本数而不是嵌入条数，两者不保证一致"
+   },
+   {
+    "data": "本轮参与客户端的名单与顺序（排序、并列 tie-break、m 的分母）",
+    "where": "服务器，SERVER_RECEIVE 与 SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "ctx.uploads.clients / ctx.participants"
+   },
+   {
+    "data": "逐条 0/1 标记聚成的客户端级异常分 S_k 与标记条数（式 7 / Inference Rule）",
+    "where": "服务器，SERVER_RECEIVE 计算、SERVER_AGGREGATE 使用",
+    "provided": "yes",
+    "via": "同一插件挂两个位置，用 ctx.round_state 在一轮内传递（runner 每轮 begin_round 清空）；同时写进 findings.scores/features，别的插件可用 ctx.upstream_feature 读"
+   },
+   {
+    "data": "剔除决定（排除谁、保留谁、什么权重）",
+    "where": "服务器，SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "Decision(excluded/weights/flags) + acts={'select_and_weight'}；宿主 OpenFedLLMGuard.before_aggregate 据此给出 kept 与权重，聚合算术由宿主做"
+   },
+   {
+    "data": "上传的 LoRA 更新本身",
+    "where": "服务器，SERVER_AGGREGATE",
+    "provided": "yes",
+    "via": "ctx.uploads（factor_delta/state）；但本方法的判定不看更新内容，只把它交给宿主聚合——这与论文一致（SABRE-FL 只对嵌入打分），也是它能原样落地的原因"
+   },
+   {
+    "data": "跨轮状态（本方法不累积）",
+    "where": "服务器，每轮独立",
+    "provided": "yes",
+    "via": "不需要：round_state 每轮由 runner 清空，检测器来自 resources 且不更新，正好对应论文 step 9"
+   }
+  ],
+  "external_state": [
+   "离线训练好的二分类检测器 D（论文：两层 MLP 512→128→2、ReLU、BCE、Adam 1e-3、20 epoch、batch 64、几 MB），以 resources['detector'] 传入；需是可调用对象 (n,d)→(n,2) logits，eval 模式，dtype 与嵌入一致",
+   "辅助数据集 Caltech-101（9146 张、与联邦训练集不相交）与触发器注入流程 x* = x ⊕ t（论文未给子集大小/比例、D_aux 总条数、触发器来源与优化）",
+   "冻结的 CLIP ViT-B/16 图像编码器与论文所说的 a fixed prompt learner（论文没说是哪一个），客户端每轮编码本地图像用",
+   "每个客户端本地样本的嵌入表（上面编码器的输出，按样本 hash 索引），以 resources['embeddings'] 传入；库外维护，随本地数据变化更新",
+   "m 的取值（每轮恶意客户端数上界）；论文只给默认比例 25% 与 0/25/50/100% 的消融，没有绝对值",
+   "（方法依赖但不属于插件）宿主框架的联邦提示学习循环：冻结图像/文本编码器、只训练 prompt、恶意客户端在本地注入触发器并重标目标类"
+  ],
+  "missing_runtime": [
+   {
+    "what": "客户端侧运行第二个模型（冻结 CLIP 图像编码器）的能力：ModelHandle 协议只有 lora/parameters/layout/tokens/losses/hidden/activations/per_sample_gradients/logprob/generate，句柄包着正在训练的那个模型，输入经 DataView 按文本 hash 记录，没有图像入口，也没有把独立编码器接进来的挂载点",
+    "blocks": "步骤 4 的编码一半：每轮把本地图像变成 512 维嵌入（论文客户端侧的主要开销）。插件因此只能转发库外算好的嵌入表，而不是自己编码并共享"
+   },
+   {
+    "what": "训练之外的离线阶段（离线训练一个部件的位置）",
+    "blocks": "步骤 0–1 在库内没有落点。按规则 3 它们本来就不属于插件（检测器作为 resources 传入即可），所以不阻塞移植；它只说明如果要库内复现论文全流程，库缺一个离线环节"
+   }
+  ],
+  "deviations": [
+   "模态不同：论文是 CLIP 提示学习（本地图像→嵌入），库是语言模型 LoRA；被打分的向量是防御方给的，更新的内容完全不参与判定",
+   "嵌入走既有上传通道（客户端插件把 (n_k, d) 作为 attachment 发出，服务器 ctx.attachment 取回），而不是论文暗示的额外 representation-sharing 通道；不新增往返，与论文 needs_round_trip=false 一致",
+   "runner 限制每个插件每轮 attachment ≤ 64 MiB（GuardRunner.attachment_limit_bytes，约 3.2 万条 512 维 float32），n_k 很大时会被这条库限制截断",
+   "检测与剔除放在同一个插件、挂两个位置（server_receive → server_aggregate），论文里是服务器上的两个组件",
+   "没有交嵌入的客户端永不剔除（论文假设所有被选客户端都交）；少交或不交嵌入即可绕过该防御，这是移植后仍然存在的弱点，已写进类说明",
+   "剔除后保留客户端默认沿用宿主聚合权重（按 num_examples）；论文正文是均值，equal_weights=True 才是逐客户端等权",
+   "logits→0/1 采用概率阈值（默认 0.5，可调）；论文形式上写 D: R^d→{0,1}，附录却说输出 logits 且未给阈值"
+  ],
+  "open_choices": [
+   "排序口径：默认按式 7 的均值 S_k，by='count' 对应 §4.1/附录 C.1 的标记条数；n_k 不等时两者排序不同（测试里有一个分叉例子）",
+   "m：默认 ceil(0.25 × 本轮参与数)，即把论文的 25% 恶意比例套在本轮参与者上；论文没给每轮绝对值，部署应显式传 m",
+   "logits 二值化阈值取 0.5（class-1 概率）",
+   "最多剔除 n-1 个，任何一轮都不会把参与者全部剔光（论文未说保留集为空怎么办）",
+   "并列时按 ctx.uploads.clients 的顺序取靠前者（与库里 Krum 例子的 tie-break 风格一致）",
+   "嵌入不做 L2 归一化/标准化，也不做 dtype 转换：防御方用什么编码训练检测器就传什么",
+   "equal_weights=True 时保留客户端权重设为 1（等价论文的等权均值），默认交给宿主权重",
+   "缺嵌入的客户端不参与排序、不被剔除，只在 findings 的 no_embeddings 里报告"
+  ],
+  "needs_from_authors": [
+   "D_aux 构造：辅助集用哪个子集/多少张、注入触发器的比例与总条数 N、触发器 t 怎么来（附录 D.1 的 3 epoch 触发器优化是否用于此）、'a fixed prompt learner' 具体指什么",
+   "检测器实现与权重（论文只有结构与优化器超参）：logits→0/1 的阈值、嵌入进 MLP 前是否 L2 归一化/标准化",
+   "每客户端每轮上报多少条嵌入 n_k、是否每轮都报、是否与 prompt 更新同一批传输（Algorithm 1 第 11 行抽取残缺）",
+   "每轮 m 的绝对值与是否随轮变化；服务器学习率 η 与剔除后是否按样本量加权、是否重新归一化"
+  ],
+  "confidence": "medium",
+  "confidence_reason": "库内可表达的部分（步骤 4 的共享、5、6、7、8 的决定、9 的每轮独立）已按论文实现，并在真实 GuardRunner/ClientGuard/OpenFedLLMGuard 上跑了 6 个机制测试（8 客户端里 1 个被标记的应当动作情形、两个不应动作情形、均值与计数两种口径的分叉、客户端→服务器的端到端配对），静态 import 检查与两侧契约检查都通过。判 partial 而非 full 的原因：客户端侧的编码（步骤 4 的另一半，也是论文客户端的主要开销）在库内没有运行时——库没有图像入口也没有第二个模型的挂载点，只能吃防御方预先算好的嵌入表；离线检测器与辅助集的细节论文也未公布。"
+ },
+ "static": [],
+ "verify": {
+  "imports": true,
+  "plugins": [
+   {
+    "class": "SabreEmbeddings",
+    "name": "sabre_embeddings",
+    "side": "client",
+    "stages": [
+     "client_post_train"
+    ],
+    "needs": [
+     "data"
+    ],
+    "resources": [
+     "embeddings"
+    ],
+    "acts": [],
+    "doc_sections": [
+     "cost",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 46
+   },
+   {
+    "class": "SabreFL",
+    "name": "sabre_fl",
+    "side": "server",
+    "stages": [
+     "server_receive",
+     "server_aggregate"
+    ],
+    "needs": [
+     "reports",
+     "uploads"
+    ],
+    "resources": [
+     "detector"
+    ],
+    "acts": [
+     "select_and_weight"
+    ],
+    "doc_sections": [
+     "cost",
+     "deviations",
+     "implemented",
+     "not_implemented",
+     "open_choices"
+    ],
+    "lines": 104
+   }
+  ],
+  "contract": true,
+  "docstring": true,
+  "tests": "passed",
+  "errors": [],
+  "plugin_lines": 198,
+  "test_lines": 126,
+  "test_summary": "6 passed in 1.02s"
+ },
+ "status": "passed",
+ "tokens": 201469,
+ "cache_read_tokens": 3224960,
+ "seconds": 446.0
+}
