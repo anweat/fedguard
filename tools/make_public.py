@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INCLUDE = [          # git pathspecs, relative to the repository root
-    "README.md", "LICENSE", "NOTICE.md", "pyproject.toml", ".gitattributes", "tools/make_public.py",
+    "README.md", "PROGRESS.md", "LICENSE", "NOTICE.md", "pyproject.toml", ".gitattributes", "tools/make_public.py",
     "fedguard", "tests", "integrations", "experiments", "envs", "external/UPSTREAM.md",
     "survey/README.md", "survey/paper_index.md", "survey/library_manifest.json", "survey/scripts", "survey/notes", "survey/harvest",
     "output/poisoning_study/2026-*", "output/poisoning_study/figures",
